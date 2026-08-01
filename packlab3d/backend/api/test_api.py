@@ -74,26 +74,24 @@ def test_process_image_stub_returns_501():
     assert response.json()["detail"] == get_message("errors.notImplemented", "en")
 
 
-def test_generate_mesh_returns_503_without_model_deps():
-    # torch / tsr are genuinely not installed in this environment.
+def test_generate_mesh_endpoint_is_retired():
     for lang in ("en", "tr", "sw"):
         files = {"file": ("photo.png", _png_bytes(), "image/png")}
         response = client.post("/generate-mesh", files=files, data={"language": lang})
-        assert response.status_code == 503
-        assert response.json()["detail"] == get_message("errors.modelUnavailable", lang)
+        assert response.status_code == 410
+        assert response.json()["detail"]["code"] == "LEGACY_GENERATE_MESH_RETIRED"
 
 
-def test_generate_mesh_rejects_unknown_backend():
+def test_generate_mesh_unknown_backend_is_also_retired():
     files = {"file": ("photo.png", _png_bytes(), "image/png")}
     response = client.post("/generate-mesh", files=files, data={"backend": "not-a-backend"})
-    assert response.status_code == 400
+    assert response.status_code == 410
 
 
-def test_generate_mesh_rejects_invalid_image():
+def test_generate_mesh_invalid_image_is_not_parsed_by_retired_route():
     files = {"file": ("photo.png", b"not-a-real-image", "image/png")}
     response = client.post("/generate-mesh", files=files, data={"language": "en"})
-    assert response.status_code == 400
-    assert response.json()["detail"] == get_message("errors.invalidImage", "en")
+    assert response.status_code == 410
 
 
 def test_scale_mesh_success_returns_scaled_obj():
@@ -144,7 +142,7 @@ def test_capabilities_returns_structured_results():
     assert data["open3d"]["available"] is True
     assert data["open3d"]["status"] in {"available", "import-error"}
     assert "loadTimeMs" in data["open3d"]
-    assert data["triposr"]["available"] is False
+    assert data["native_reconstruction"]["available"] is True
     assert data["sam"]["status"] in {"available", "not-configured"}
 
 

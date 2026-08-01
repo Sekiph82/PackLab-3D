@@ -127,8 +127,11 @@ def test_analysis_segmentation_and_reconstruction_use_all_included_photos():
     reconstruct_job = _wait_job(reconstruct["id"])
     assert reconstruct_job["state"] == "succeeded"
     report = reconstruct_job["result"]["report"]
-    assert report["trueMultiViewReconstruction"] is False
-    assert report["provider"] == "ParametricPackagingFitProvider"
+    assert report["trueMultiViewReconstruction"] is True
+    assert report["provider"] == "PackLabNativeReconstructionEngine"
+    assert report["method"] == "packlab-native-generic-profile-fit"
+    assert report["reconstructionModel"]["controlCage"]["editable"] is True
+    assert report["optimizationReport"]["engine"] == "PackLab Native Reconstruction Engine"
     assert report["photosUsed"] == [photos[0]["id"], photos[1]["id"], photos[2]["id"]]
     assert report["photosExcluded"] == [photos[3]["id"]]
     assert report["dimensionsMm"]["heightMm"] == 120
@@ -145,7 +148,8 @@ def test_analysis_segmentation_and_reconstruction_use_all_included_photos():
         assert "metadata.json" in zf.namelist()
 
     persisted = client.get(f"/projects/{project_id}/report").json()
-    assert persisted["version"] == 2
+    assert persisted["version"] == 3
+    assert persisted["reconstructionModel"]["coordinateSystem"] == "millimetres, +Y up"
     assert [photo["id"] for photo in persisted["photos"]][:3] == [photos[0]["id"], photos[1]["id"], photos[2]["id"]]
 
 
@@ -167,4 +171,32 @@ def test_bottle_reconstruction_uses_open3d_height_argument():
     ).json()
     job = _wait_job(reconstruct["id"])
     assert job["state"] == "succeeded"
-    assert job["result"]["report"]["method"] == "parametric-multiview-silhouette-fit"
+    assert job["result"]["report"]["method"] == "packlab-native-generic-profile-fit"
+
+
+def test_editable_model_updates_linked_drawing_and_preserves_notes():
+    project_id = _project_id()
+    client.post(f"/projects/{project_id}/photos", files=_files(3))
+    reconstruct = client.post(
+        f"/projects/{project_id}/reconstruct",
+        json={"packageType": "custom", "measurements": {"heightMm": 120, "widthMm": 50, "depthMm": 30}},
+    ).json()
+    assert _wait_job(reconstruct["id"])["state"] == "succeeded"
+
+    note = client.patch(
+        f"/projects/{project_id}/drawing-document",
+        json={"notes": [{"text": "Manual packaging note", "x": 10, "y": 20}]},
+    ).json()
+    assert note["drawingDocument"]["notes"][0]["text"] == "Manual packaging note"
+
+    edited = client.patch(
+        f"/projects/{project_id}/editable-model",
+        json={"heightMm": 150, "widthMm": 60},
+    ).json()
+    model = edited["reconstructionModel"]
+    drawing = edited["drawingDocument"]
+    assert model["heightMm"] == 150
+    assert max(section["widthMm"] for section in model["crossSections"]) == 60
+    height_dim = next(item for item in drawing["dimensions"] if item["id"] == "dim-overall-height")
+    assert height_dim["valueMm"] == 150
+    assert drawing["notes"][0]["text"] == "Manual packaging note"

@@ -7,7 +7,7 @@
 
 PackLab 3D is a desktop application that generates:
 
-- Real-scale 3D mesh from a product photo
+- Real-scale 3D mesh from a multi-photo packaging photo set
 - Dimensioned 2D technical drawings
 - Automatic wall thickness
 - Automatic material selection
@@ -23,11 +23,9 @@ PackLab 3D is a desktop application that generates:
 - https://github.com/facebookresearch/segment-anything
 - https://github.com/IDEA-Research/Grounded-Segment-Anything
 
-### 1.2 3D Mesh Generation
-- https://github.com/VAST-AI-Research/TripoSR
-- https://github.com/Tencent/Hunyuan3D
-- https://github.com/cvlab-epfl/MASt3R
-- https://github.com/lllyasviel/PicToMesh
+### 1.2 3D Reconstruction
+- PackLab native multi-photo reconstruction engine
+- Generic silhouette/profile/cross-section fitting
 
 ### 1.3 Mesh Processing
 - https://github.com/isl-org/Open3D
@@ -103,10 +101,11 @@ Modules:
 - Grounded-SAM object isolation
 - Background removal
 
-### 4.2 Mesh Generation
-- TripoSR for single-view mesh
-- Hunyuan3D for high-quality mesh
-- PicToMesh for multi-view pipeline
+### 4.2 Native Reconstruction
+- Photo quality and same-object analysis
+- Contour and silhouette extraction
+- Generic profile and cross-section fitting
+- Measurement-constrained native mesh generation
 
 ### 4.3 Mesh Scaling
 - Open3D bounding box
@@ -170,7 +169,7 @@ Styles (5 options):
 ## 5. API Endpoints
 
 POST /process-image  
-POST /generate-mesh  
+POST /projects/{project_id}/reconstruct  
 POST /scale-mesh  
 POST /apply-wall-thickness  
 POST /generate-2d  

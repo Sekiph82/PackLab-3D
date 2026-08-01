@@ -127,25 +127,41 @@
     "unified": "Uundaji upya mmoja",
     "complete": "Uundaji upya mmoja umekamilika.",
     "fallbackSuccess": "Muundo mmoja umeundwa kwa njia ya akiba ya kigezo.",
+    "nativeSuccess": "Muundo mmoja umeundwa kwa uundaji upya wa ndani wa PackLab.",
     "providerUsed": "Mtoa huduma aliyetumika",
-    "aiModelInstalled": "Modeli ya AI imesakinishwa",
+    "engineAvailable": "Injini ya ndani inapatikana",
     "fallbackUsed": "Njia ya akiba imetumika",
     "method": "Mbinu",
     "photosUsed": "Picha zilizotumika",
     "photosExcluded": "Picha zilizoondolewa",
     "confidence": "Uhakika",
-    "aiReconstruction": "Uundaji Upya wa AI",
+    "nativeEngine": "Injini ya Uundaji Upya ya PackLab",
+    "nativeMultiPhoto": "Uundaji upya wa ndani kwa picha nyingi",
     "modelWeights": "Uzito wa modeli",
     "standardUnifiedDesign": "Muundo mmoja wa kawaida",
     "parametricFallback": "Akiba ya kigezo ya mitazamo mingi",
+    "genericEditableModel": "Modeli ya jumla inayoharirika",
     "modes": {
       "auto": "Otomatiki",
       "multiViewParametric": "Kigezo cha Mitazamo Mingi",
       "basicParametric": "Kigezo cha Msingi",
-      "experimentalAiReference": "Mesh ya Marejeo ya AI ya Majaribio"
+      "nativeReconstruction": "Uundaji Upya wa Ndani wa Picha Nyingi",
+      "genericProfileFit": "Ulinganishaji wa Profaili ya Jumla"
     },
     "errors": {
       "createUnifiedFirst": "Unda kwanza muundo mmoja kutoka seti ya picha."
+    },
+    "editor": {
+      "title": "3D Inayoharirika na 2D Iliyounganishwa",
+      "height": "Urefu (mm)",
+      "width": "Upana (mm)",
+      "depth": "Kina (mm)",
+      "apply": "Tumia Hariri ya 3D",
+      "updated": "Modeli ya 3D imesasishwa na mchoro wa 2D uliounganishwa umeburudishwa.",
+      "notePlaceholder": "Dokezo la mchoro",
+      "addNote": "Ongeza Dokezo",
+      "defaultNote": "Dokezo la mkono",
+      "noteAdded": "Dokezo la mchoro limeongezwa na litahifadhiwa wakati wa mabadiliko ya modeli."
     }
   },
   "labelMapping": {
@@ -195,6 +211,7 @@
     "notInstalled": "Haijasakinishwa",
     "available": "Inapatikana",
     "unavailable": "Haipatikani",
+    "notRequired": "Haihitajiki",
     "retry": "Jaribu Tena",
     "timedOut": "Muda Umeisha",
     "validationFailed": "Uthibitishaji Umeshindwa",

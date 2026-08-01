@@ -1,5 +1,7 @@
-# Optional. The core PackLab 3D app starts without these packages.
+# Optional segmentation-only dependencies.
+# The PackLab native reconstruction engine does not require PyTorch, model
+# weights, CUDA, or a neural image-to-3D runtime.
+#
+# Install these only when enabling the optional local SAM segmentation provider.
 torch
 segment-anything
-# TripoSR is not published as a normal PyPI package. Install the upstream
-# VAST-AI-Research/TripoSR project and make its `tsr` package importable.

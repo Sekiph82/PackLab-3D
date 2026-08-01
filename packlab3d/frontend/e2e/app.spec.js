@@ -1,6 +1,5 @@
 // Real Playwright Electron E2E suite. The primary desktop workflow is the
-// unified photo-set reconstruction job, not the optional legacy TripoSR
-// /generate-mesh endpoint.
+// native unified photo-set reconstruction job, not the retired /generate-mesh endpoint.
 const { test, expect, _electron: electron } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
@@ -106,7 +105,7 @@ test.describe.serial('PackLab 3D desktop app (real end-to-end run)', () => {
     const status = await window.locator('#pipeline-status').textContent();
     log(`Pipeline status after unified reconstruction: ${status}`);
     expect(status).toContain('Unified reconstruction complete');
-    expect(status).toMatch(/parametric|fallback/i);
+    expect(status).toMatch(/native reconstruction|profile-fit/i);
   });
 
   test('07 - viewer canvas is mounted after unified reconstruction', async () => {

@@ -127,25 +127,41 @@
     "unified": "Birlesik rekonstruksiyon",
     "complete": "Birlesik rekonstruksiyon tamamlandi.",
     "fallbackSuccess": "Birlesik tasarim parametrik yedek yontemle olusturuldu.",
+    "nativeSuccess": "Birlesik tasarim PackLab yerel rekonstruksiyon ile olusturuldu.",
     "providerUsed": "Kullanilan saglayici",
-    "aiModelInstalled": "AI modeli kurulu",
+    "engineAvailable": "Yerel motor kullanilabilir",
     "fallbackUsed": "Yedek yontem kullanildi",
     "method": "Yontem",
     "photosUsed": "Kullanilan fotograflar",
     "photosExcluded": "Haric tutulan fotograflar",
     "confidence": "Guven",
-    "aiReconstruction": "AI Rekonstruksiyon",
+    "nativeEngine": "PackLab Rekonstruksiyon Motoru",
+    "nativeMultiPhoto": "Yerel cok fotograflı rekonstruksiyon",
     "modelWeights": "Model agirliklari",
     "standardUnifiedDesign": "Standart birlesik tasarim",
     "parametricFallback": "Cok gorunumlu parametrik yedek",
+    "genericEditableModel": "Genel duzenlenebilir model",
     "modes": {
       "auto": "Otomatik",
       "multiViewParametric": "Cok Gorunumlu Parametrik",
       "basicParametric": "Temel Parametrik",
-      "experimentalAiReference": "Deneysel AI Referans Mesh"
+      "nativeReconstruction": "Yerel Cok Fotograflı Rekonstruksiyon",
+      "genericProfileFit": "Genel Profil Uydurma"
     },
     "errors": {
       "createUnifiedFirst": "Once fotograf setinden birlesik tasarim olusturun."
+    },
+    "editor": {
+      "title": "Duzenlenebilir 3D ve Bagli 2D",
+      "height": "Yukseklik (mm)",
+      "width": "Genislik (mm)",
+      "depth": "Derinlik (mm)",
+      "apply": "3D Duzenlemeyi Uygula",
+      "updated": "3D model guncellendi ve bagli 2D cizim yenilendi.",
+      "notePlaceholder": "Cizim notu",
+      "addNote": "Not Ekle",
+      "defaultNote": "Manuel not",
+      "noteAdded": "Cizim notu eklendi ve model duzenlemelerinde korunacak."
     }
   },
   "labelMapping": {
@@ -195,6 +211,7 @@
     "notInstalled": "Kurulu degil",
     "available": "Kullanilabilir",
     "unavailable": "Kullanilamaz",
+    "notRequired": "Gerekli degil",
     "retry": "Tekrar Dene",
     "timedOut": "Zaman Asimi",
     "validationFailed": "Dogrulama Basarisiz",

@@ -17,7 +17,6 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         "torch",
-        "tsr",
         "segment_anything",
         "FreeCAD",
         "Part",

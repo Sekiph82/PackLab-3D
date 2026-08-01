@@ -200,7 +200,7 @@ async function bootBackend() {
     fs.writeFileSync(path.join(getLogDir(), 'capabilities.json'), JSON.stringify(capabilities, null, 2));
     emitStartup('Capabilities loaded', 'success', { capabilityCount: Object.keys(capabilities).length });
     emitStartup('Open3D available', capabilityAvailable(capabilities.open3d) ? 'success' : 'error', { open3d: capabilities.open3d });
-    if (!capabilityAvailable(capabilities.triposr)) emitStartup('TripoSR model unavailable', 'warning');
+    emitStartup('PackLab native reconstruction available', capabilityAvailable(capabilities.native_reconstruction) ? 'success' : 'error', { nativeReconstruction: capabilities.native_reconstruction });
     if (!capabilityAvailable(capabilities.sam)) emitStartup('SAM model unavailable', 'warning');
     emitStartup('Application ready', 'success', { totalMs: Date.now() - startupStartedAt });
     return { ready: true, mode: 'CORE_ONLY', url: backendInfo.backendUrl, port, backendPid: backendInfo.backendPid(), capabilities, startupEvents };

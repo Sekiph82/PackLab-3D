@@ -82,6 +82,18 @@ class ReconstructionRequest(BaseModel):
     reconstructionMode: Optional[str] = "auto"
 
 
+class EditableModelUpdateRequest(BaseModel):
+    heightMm: Optional[float] = None
+    widthMm: Optional[float] = None
+    depthMm: Optional[float] = None
+    profilePoints: list[dict] = []
+
+
+class DrawingDocumentUpdateRequest(BaseModel):
+    notes: list[dict] = []
+    titleBlock: dict = {}
+
+
 def _resolve_language(language: Optional[str]) -> str:
     lang = (language or DEFAULT_LANGUAGE).strip().lower()
     return lang if lang in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
@@ -231,37 +243,6 @@ def _static_capability(available: bool, status: str, reason: Optional[str] = Non
     }
 
 
-def _cuda_capability(torch_cap: dict) -> dict:
-    started = time.perf_counter()
-    if not torch_cap["available"]:
-        return {
-            "available": False,
-            "status": "torch-unavailable",
-            "version": None,
-            "reason": "Torch is not installed",
-            "loadTimeMs": round((time.perf_counter() - started) * 1000, 2),
-        }
-    try:
-        import torch
-
-        available = bool(torch.cuda.is_available())
-        return {
-            "available": available,
-            "status": "available" if available else "not-available",
-            "version": getattr(torch.version, "cuda", None),
-            "reason": None if available else "CUDA is not available in this environment",
-            "loadTimeMs": round((time.perf_counter() - started) * 1000, 2),
-        }
-    except Exception as exc:
-        return {
-            "available": False,
-            "status": "probe-error",
-            "version": None,
-            "reason": str(exc),
-            "loadTimeMs": round((time.perf_counter() - started) * 1000, 2),
-        }
-
-
 def _build_capabilities() -> dict:
     open3d_cap = _capability("open3d", import_for_version=True)
     trimesh_cap = _capability("trimesh", import_for_version=True)
@@ -269,8 +250,6 @@ def _build_capabilities() -> dict:
     pillow_cap = _capability("PIL", distribution="Pillow")
     qrcode_cap = _capability("qrcode")
     barcode_cap = _capability("barcode", distribution="python-barcode")
-    torch_cap = _capability("torch", import_for_version=True)
-    tsr_cap = _capability("tsr", distribution="tsr", reason="The tsr package and model files are not installed")
     sam_installed = _module_available("segment_anything")
     sam_checkpoint = bool(os.environ.get("PACKLAB_SAM_CHECKPOINT"))
     sam_cap = _static_capability(
@@ -296,13 +275,8 @@ def _build_capabilities() -> dict:
         "pillow": pillow_cap,
         "qr_generation": qrcode_cap,
         "barcode_generation": barcode_cap,
-        "triposr": _static_capability(
-            torch_cap["available"] and tsr_cap["available"],
-            "available" if torch_cap["available"] and tsr_cap["available"] else "not-installed",
-            None if torch_cap["available"] and tsr_cap["available"] else "The tsr package and model files are not installed",
-        ),
-        "torch": torch_cap,
-        "cuda": _cuda_capability(torch_cap),
+        "native_reconstruction": _static_capability(True, "available", "PackLab Native Reconstruction Engine is built into the core runtime"),
+        "cuda": _static_capability(False, "not-required", "PackLab native reconstruction does not require CUDA"),
         "sam": sam_cap,
         "freecad": freecad_cap,
         "occ": occ_cap,
@@ -473,38 +447,47 @@ def get_project_asset(project_id: str, asset_name: str):
     return FileResponse(asset_path, media_type=media_type, filename=filename)
 
 
+@app.get("/projects/{project_id}/editable-model")
+def get_editable_model(project_id: str):
+    try:
+        return multiview_service.editable_model(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.patch("/projects/{project_id}/editable-model")
+def update_editable_model(project_id: str, payload: EditableModelUpdateRequest):
+    try:
+        return multiview_service.update_editable_model(project_id, payload.model_dump(exclude_none=True))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.patch("/projects/{project_id}/drawing-document")
+def update_drawing_document(project_id: str, payload: DrawingDocumentUpdateRequest):
+    try:
+        return multiview_service.update_drawing_document(project_id, payload.model_dump(exclude_none=True))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
 @app.post("/generate-mesh")
 async def generate_mesh(
     file: UploadFile = File(...),
-    backend: str = Form("triposr"),
+    backend: str = Form("native"),
     language: Optional[str] = Form(None),
 ):
-    from PIL import Image
-    from packlab3d.backend.mesh_generation.pipeline import MeshBackend
-    from packlab3d.backend.mesh_generation.pipeline import generate_mesh as run_mesh_generation
-
     lang = _resolve_language(language)
-    try:
-        mesh_backend = MeshBackend(backend)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Unknown mesh backend: {backend}")
-
-    try:
-        image = Image.open(file.file)
-        image.load()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=get_message("errors.invalidImage", lang)) from exc
-
-    try:
-        mesh = run_mesh_generation(image, backend=mesh_backend)
-    except ModelNotAvailableError as exc:
-        logger.warning("Mesh generation backend unavailable: %s", exc)
-        raise HTTPException(status_code=503, detail=get_message("errors.modelUnavailable", lang))
-
-    return _mesh_file_response(
-        mesh,
-        download_name="generated_mesh.obj",
-        headers={"X-Api-Message": _api_message_header("api.meshGenerated", lang)},
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "LEGACY_GENERATE_MESH_RETIRED",
+            "message": "The single-photo AI mesh endpoint has been retired. Use the project photo-set reconstruction workflow.",
+            "replacement": "/projects/{project_id}/reconstruct",
+            "language": lang,
+        },
     )
 
 

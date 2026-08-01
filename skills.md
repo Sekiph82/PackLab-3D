@@ -11,11 +11,11 @@ Claude must use:
 - OpenCascade
 - Pillow / CairoSVG / Node Canvas
 
-## AI Skills
-- TripoSR
-- Hunyuan3D
-- SAM
-- Grounded-SAM
+## Reconstruction Skills
+- PackLab native multi-photo reconstruction
+- Silhouette extraction
+- Generic profile and cross-section fitting
+- Optional SAM / Grounded-SAM segmentation
 
 ## Multilingual Skills
 - i18n architecture

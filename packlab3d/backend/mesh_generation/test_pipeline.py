@@ -8,7 +8,6 @@ from packlab3d.backend.mesh_generation.pipeline import (
     generate_mesh,
     mesh_from_vertices_faces,
 )
-from packlab3d.core.utils.errors import ModelNotAvailableError
 
 
 def test_mesh_from_vertices_faces_builds_valid_mesh():
@@ -30,25 +29,7 @@ def test_mesh_from_vertices_faces_rejects_bad_face_shape():
         mesh_from_vertices_faces(np.zeros((4, 3)), np.zeros((2, 4), dtype=int))
 
 
-def test_generate_mesh_triposr_unavailable_without_deps():
+def test_generate_mesh_single_photo_path_is_retired():
     image = Image.new("RGB", (32, 32))
-    with pytest.raises(ModelNotAvailableError):
-        generate_mesh(image, backend=MeshBackend.TRIPOSR)
-
-
-def test_generate_mesh_hunyuan3d_not_wired():
-    image = Image.new("RGB", (32, 32))
-    with pytest.raises(ModelNotAvailableError):
-        generate_mesh(image, backend=MeshBackend.HUNYUAN3D)
-
-
-def test_generate_mesh_pictomesh_not_wired():
-    image = Image.new("RGB", (32, 32))
-    with pytest.raises(ModelNotAvailableError):
-        generate_mesh(image, backend=MeshBackend.PICTOMESH)
-
-
-def test_generate_mesh_unknown_backend():
-    image = Image.new("RGB", (32, 32))
-    with pytest.raises(ValueError):
-        generate_mesh(image, backend="not-a-backend")
+    with pytest.raises(RuntimeError, match="retired"):
+        generate_mesh(image, backend=MeshBackend.NATIVE_PHOTO_SET)

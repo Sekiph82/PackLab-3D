@@ -127,25 +127,41 @@
     "unified": "Unified reconstruction",
     "complete": "Unified reconstruction complete.",
     "fallbackSuccess": "Unified design generated using parametric fallback.",
+    "nativeSuccess": "Unified design generated with PackLab native reconstruction.",
     "providerUsed": "Provider used",
-    "aiModelInstalled": "AI model installed",
+    "engineAvailable": "Native engine available",
     "fallbackUsed": "Fallback used",
     "method": "Method",
     "photosUsed": "Photos used",
     "photosExcluded": "Photos excluded",
     "confidence": "Confidence",
-    "aiReconstruction": "AI Reconstruction",
+    "nativeEngine": "PackLab Reconstruction Engine",
+    "nativeMultiPhoto": "Native multi-photo reconstruction",
     "modelWeights": "Model weights",
     "standardUnifiedDesign": "Standard unified design",
     "parametricFallback": "Multi-view parametric fallback",
+    "genericEditableModel": "Generic editable model",
     "modes": {
       "auto": "Auto",
       "multiViewParametric": "Multi-View Parametric",
       "basicParametric": "Basic Parametric",
-      "experimentalAiReference": "Experimental AI Reference Mesh"
+      "nativeReconstruction": "Native Multi-Photo Reconstruction",
+      "genericProfileFit": "Generic Profile Fit"
     },
     "errors": {
       "createUnifiedFirst": "Create a unified design from the photo set first."
+    },
+    "editor": {
+      "title": "Editable 3D and Linked 2D",
+      "height": "Height (mm)",
+      "width": "Width (mm)",
+      "depth": "Depth (mm)",
+      "apply": "Apply 3D Edit",
+      "updated": "3D model updated and linked 2D drawing refreshed.",
+      "notePlaceholder": "Drawing note",
+      "addNote": "Add Note",
+      "defaultNote": "Manual note",
+      "noteAdded": "Drawing note added and will persist through model edits."
     }
   },
   "labelMapping": {
@@ -195,6 +211,7 @@
     "notInstalled": "Not installed",
     "available": "Available",
     "unavailable": "Unavailable",
+    "notRequired": "Not required",
     "retry": "Retry",
     "timedOut": "Timed Out",
     "validationFailed": "Validation Failed",

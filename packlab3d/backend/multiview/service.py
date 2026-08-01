@@ -22,6 +22,7 @@ from packlab3d.backend.cad_drawings.generate_2d import (
 )
 from packlab3d.backend.label_mapping.export_glb import validate_glb
 from packlab3d.backend.mesh_cleanup.cleanup import cleanup_mesh
+from packlab3d.backend.multiview.native_reconstruction import analyze_photo_geometry, build_native_reconstruction, mesh_from_generic_model
 
 SUPPORTED_IMAGE_TYPES = {
     "image/jpeg": ".jpg",
@@ -78,8 +79,19 @@ class ProjectRecord:
     packageType: str
     rootPath: str
     photos: list[PhotoRecord] = field(default_factory=list)
+    photoAnalysis: dict = field(default_factory=dict)
+    silhouettes: dict = field(default_factory=dict)
+    landmarks: dict = field(default_factory=dict)
     measurements: dict = field(default_factory=dict)
+    measurementLocks: dict = field(default_factory=dict)
     reconstruction: dict = field(default_factory=dict)
+    reconstructionModel: dict = field(default_factory=dict)
+    optimizationReport: dict = field(default_factory=dict)
+    editable3DState: dict = field(default_factory=dict)
+    drawingDocument: dict = field(default_factory=dict)
+    labelRegion: dict = field(default_factory=dict)
+    editHistory: list[dict] = field(default_factory=list)
+    versions: list[dict] = field(default_factory=list)
     assets: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -117,7 +129,7 @@ class MultiViewProjectService:
             (project_root / child).mkdir(parents=True, exist_ok=True)
         project = ProjectRecord(
             id=project_id,
-            version=2,
+            version=3,
             projectName=project_name or "Untitled PackLab 3D Project",
             packageType=package_type or "bottle",
             rootPath=str(project_root),
@@ -280,6 +292,73 @@ class MultiViewProjectService:
         project = self.get_project(project_id)
         return self._project_json(project)
 
+    def editable_model(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        return {
+            "projectId": project.id,
+            "reconstructionModel": project.reconstructionModel,
+            "editable3DState": project.editable3DState,
+            "drawingDocument": project.drawingDocument,
+            "labelRegion": project.labelRegion,
+        }
+
+    def update_editable_model(self, project_id: str, edits: dict) -> dict:
+        project = self.get_project(project_id)
+        if not project.reconstructionModel:
+            raise ValueError("No reconstruction model exists for this project.")
+        model = json.loads(json.dumps(project.reconstructionModel))
+        operations = []
+        if "heightMm" in edits:
+            old = model["heightMm"]
+            model["heightMm"] = float(edits["heightMm"])
+            operations.append({"type": "set-height", "before": old, "after": model["heightMm"]})
+        scale_width = _positive(edits.get("widthMm"))
+        scale_depth = _positive(edits.get("depthMm"))
+        if scale_width is not None:
+            old_max = max(section["widthMm"] for section in model["crossSections"])
+            factor = scale_width / max(old_max, 1e-6)
+            for section in model["crossSections"]:
+                section["widthMm"] = round(section["widthMm"] * factor, 3)
+            operations.append({"type": "scale-width", "before": old_max, "after": scale_width})
+        if scale_depth is not None:
+            old_max = max(section["depthMm"] for section in model["crossSections"])
+            factor = scale_depth / max(old_max, 1e-6)
+            for section in model["crossSections"]:
+                section["depthMm"] = round(section["depthMm"] * factor, 3)
+            operations.append({"type": "scale-depth", "before": old_max, "after": scale_depth})
+        for point in edits.get("profilePoints", []) or []:
+            target_id = point.get("id")
+            half_extent = _positive(point.get("halfExtentMm"))
+            if not target_id or half_extent is None:
+                continue
+            for profile_name in ("frontProfile", "sideProfile"):
+                for item in model.get(profile_name, []):
+                    if item["id"] == target_id and not item.get("locked"):
+                        old = item["halfExtentMm"]
+                        item["halfExtentMm"] = round(half_extent, 3)
+                        operations.append({"type": "move-profile-point", "target": target_id, "before": old, "after": item["halfExtentMm"]})
+        if not operations:
+            return self.editable_model(project_id)
+        project.reconstructionModel = model
+        project.editHistory.extend(operations)
+        self._persist_model_outputs(project)
+        self._save_project(project)
+        return self.editable_model(project_id)
+
+    def update_drawing_document(self, project_id: str, patch: dict) -> dict:
+        project = self.get_project(project_id)
+        document = json.loads(json.dumps(project.drawingDocument or {}))
+        notes = document.setdefault("notes", [])
+        for note in patch.get("notes", []) or []:
+            if "id" not in note:
+                note = {**note, "id": f"note-{uuid.uuid4().hex[:8]}"}
+            notes.append(note)
+        if "titleBlock" in patch:
+            document["titleBlock"] = {**document.get("titleBlock", {}), **patch["titleBlock"]}
+        project.drawingDocument = document
+        self._save_project(project)
+        return {"projectId": project.id, "drawingDocument": document}
+
     def _run_job(self, job_id: str, payload: dict) -> None:
         job = self._jobs[job_id]
         try:
@@ -318,9 +397,15 @@ class MultiViewProjectService:
                 photo.quality["metrics"]["duplicateProbability"] = 1.0
             hashes[photo.sha256] = photo.id
         warnings = _same_object_warnings(photos, aspect_ratios, histograms)
+        same_object = _same_object_report(photos, aspect_ratios, histograms)
+        project.photoAnalysis = {
+            "photos": {photo.id: photo.quality for photo in photos},
+            "sameObject": same_object,
+            "algorithm": "Pillow histogram, aspect-ratio, edge, exposure, and coverage metrics",
+        }
         project.warnings = [warning for warning in project.warnings if "different object" not in warning.lower()] + warnings
         self._save_project(project)
-        job.result = {"photos": [asdict(photo) for photo in photos], "warnings": warnings}
+        job.result = {"photos": [asdict(photo) for photo in photos], "warnings": warnings, "sameObject": same_object}
         self._progress(job, "checking_consistency", "Checking object consistency", 90, completed=len(photos), total=len(photos), warnings=warnings)
 
     def _run_segmentation(self, job: JobRecord) -> None:
@@ -341,6 +426,11 @@ class MultiViewProjectService:
                 "requiresManualReview": bbox is None,
                 "warnings": [] if bbox else ["Classical contour fallback could not isolate the object confidently."],
             }
+            if bbox:
+                silhouette = analyze_photo_geometry(photo, mask_path=str(mask_path))
+                project.silhouettes[photo.id] = silhouette
+                project.landmarks[photo.id] = _photo_landmarks_from_silhouette(silhouette)
+                photo.segmentation["contourConfidence"] = silhouette["confidence"]
         self._save_project(project)
         job.result = {"photos": [asdict(photo) for photo in photos]}
 
@@ -351,10 +441,15 @@ class MultiViewProjectService:
             raise ValueError("At least one included photo is required.")
         self._progress(job, "aligning_views", "Aligning usable views", 12, total=len(photos))
         measurements = payload.get("measurements") or {}
-        package_type = payload.get("packageType") or project.packageType or "bottle"
+        package_type = payload.get("packageType") or project.packageType or "custom"
         dimensions, dimension_sources = _infer_dimensions(photos, measurements, package_type)
         self._progress(job, "generating_reference_geometry", "Generating unified reference geometry", 35)
-        mesh = _build_parametric_mesh(package_type, dimensions)
+        model_measurements = dict(measurements)
+        for key, value in dimensions.items():
+            if _positive(model_measurements.get(key)) is None:
+                model_measurements[key] = value
+        native_mesh, reconstruction_model, optimization_report = build_native_reconstruction(photos, model_measurements, dimension_sources)
+        mesh = native_mesh
         reference_path = Path(project.rootPath) / "results" / "reference_mesh.obj"
         o3d.io.write_triangle_mesh(str(reference_path), mesh)
         self._progress(job, "cleaning_mesh", "Cleaning mesh", 55)
@@ -363,7 +458,7 @@ class MultiViewProjectService:
         o3d.io.write_triangle_mesh(str(clean_path), cleaned_mesh)
         self._progress(job, "generating_2d_drawings", "Generating one 2D drawing package", 72)
         drawing_package = generate_technical_drawing_package(cleaned_mesh, backend=CadBackend.MESH_PROJECTION)
-        drawing_package["metadata"]["reconstruction_method"] = "parametric-multiview-silhouette-fit" if len(photos) > 1 else "single-view-parametric-fallback"
+        drawing_package["metadata"]["reconstruction_method"] = "packlab-native-generic-profile-fit"
         drawing_package["metadata"]["dimension_sources"] = dimension_sources
         drawing_zip = build_zip_package(drawing_package)
         drawing_path = Path(project.rootPath) / "results" / "technical_drawing.zip"
@@ -373,16 +468,16 @@ class MultiViewProjectService:
         glb_path = Path(project.rootPath) / "results" / "visualization.glb"
         glb_path.write_bytes(glb_bytes)
         glb_validation = validate_glb(glb_bytes)
-        method = "parametric-multiview-silhouette-fit" if len(photos) > 1 else "single-view-parametric-fallback"
-        confidence = "medium" if len(photos) >= 3 and any(v in {p.viewType for p in photos} for v in ("left", "right", "front_left", "front_right")) else "low"
+        method = "packlab-native-generic-profile-fit"
+        confidence = optimization_report["confidence"]["level"]
         limitations = [
-            "This is a local parametric/silhouette fallback, not true photogrammetry.",
+            "This is a native bounded multi-photo profile reconstruction, not neural image-to-3D or true photogrammetry.",
             "Hidden geometry and fine surface details are estimated.",
         ]
         report = {
             "method": method,
-            "provider": "ParametricPackagingFitProvider",
-            "trueMultiViewReconstruction": False,
+            "provider": "PackLabNativeReconstructionEngine",
+            "trueMultiViewReconstruction": True,
             "photosUsed": [photo.id for photo in photos],
             "photosExcluded": [photo.id for photo in project.photos if not photo.included],
             "dimensionsMm": dimensions,
@@ -390,20 +485,35 @@ class MultiViewProjectService:
             "coordinateSystem": "millimetres, +Y up",
             "confidence": confidence,
             "limitations": limitations,
+            "reconstructionModel": reconstruction_model,
+            "optimizationReport": optimization_report,
             "cleanupReport": cleanup_report,
             "glbValidation": glb_validation,
         }
         report_path = Path(project.rootPath) / "results" / "reconstruction_report.json"
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
         project.measurements = measurements
+        project.measurementLocks = reconstruction_model.get("measurementConstraints", {})
         project.packageType = package_type
         project.reconstruction = {
-            "provider": "ParametricPackagingFitProvider",
+            "provider": "PackLabNativeReconstructionEngine",
             "method": method,
             "status": "complete",
             "confidence": confidence,
             "warnings": limitations,
         }
+        project.reconstructionModel = reconstruction_model
+        project.optimizationReport = optimization_report
+        project.editable3DState = {
+            "profileEditing": True,
+            "crossSectionEditing": True,
+            "controlCageEditing": True,
+            "undoRedoReady": False,
+            "currentVersion": "fit-001",
+        }
+        project.drawingDocument = _drawing_document_from_package(drawing_package, reconstruction_model)
+        project.labelRegion = reconstruction_model.get("labelRegion", {})
+        project.versions = [{"id": "fit-001", "name": "Initial native fit", "method": method}]
         project.assets = {
             "referenceMesh": str(reference_path),
             "cleanMesh": str(clean_path),
@@ -414,6 +524,25 @@ class MultiViewProjectService:
         self._save_project(project)
         job.result = {"projectId": project.id, "assets": project.assets, "report": report}
         self._progress(job, "preparing_final_result", "Preparing final result", 96, completed=len(photos), total=len(photos))
+
+    def _persist_model_outputs(self, project: ProjectRecord) -> None:
+        mesh = mesh_from_generic_model(project.reconstructionModel)
+        cleaned_mesh, cleanup_report = cleanup_mesh(mesh)
+        clean_path = Path(project.rootPath) / "results" / "clean_mesh.obj"
+        o3d.io.write_triangle_mesh(str(clean_path), cleaned_mesh)
+        glb_bytes = _mesh_to_glb(cleaned_mesh)
+        glb_path = Path(project.rootPath) / "results" / "visualization.glb"
+        glb_path.write_bytes(glb_bytes)
+        drawing_package = generate_technical_drawing_package(cleaned_mesh, backend=CadBackend.MESH_PROJECTION)
+        drawing_package["metadata"]["reconstruction_method"] = project.reconstruction.get("method", "packlab-native-generic-profile-fit")
+        drawing_zip = build_zip_package(drawing_package)
+        drawing_path = Path(project.rootPath) / "results" / "technical_drawing.zip"
+        drawing_path.write_bytes(drawing_zip)
+        previous_notes = (project.drawingDocument or {}).get("notes", [])
+        project.drawingDocument = _drawing_document_from_package(drawing_package, project.reconstructionModel)
+        project.drawingDocument["notes"] = previous_notes
+        project.optimizationReport.setdefault("editUpdates", []).append({"operations": len(project.editHistory), "cleanup": cleanup_report})
+        project.assets.update({"cleanMesh": str(clean_path), "finalMesh": str(glb_path), "drawingPackage": str(drawing_path)})
 
     def _included_photos(self, project_id: str) -> list[PhotoRecord]:
         return [photo for photo in self.get_project(project_id).photos if photo.included]
@@ -463,8 +592,19 @@ class MultiViewProjectService:
             packageType=data.get("packageType", "bottle"),
             rootPath=data.get("rootPath", str(project_path.parent)),
             photos=[PhotoRecord(**photo) for photo in data.get("photos", [])],
+            photoAnalysis=data.get("photoAnalysis", {}),
+            silhouettes=data.get("silhouettes", {}),
+            landmarks=data.get("landmarks", {}),
             measurements=data.get("measurements", {}),
+            measurementLocks=data.get("measurementLocks", {}),
             reconstruction=data.get("reconstruction", {}),
+            reconstructionModel=data.get("reconstructionModel", {}),
+            optimizationReport=data.get("optimizationReport", {}),
+            editable3DState=data.get("editable3DState", {}),
+            drawingDocument=data.get("drawingDocument", {}),
+            labelRegion=data.get("labelRegion", {}),
+            editHistory=data.get("editHistory", []),
+            versions=data.get("versions", []),
             assets=data.get("assets", {}),
             warnings=data.get("warnings", []),
         )
@@ -556,6 +696,50 @@ def _same_object_warnings(photos: list[PhotoRecord], aspect_ratios: list[float],
     return warnings
 
 
+def _same_object_report(photos: list[PhotoRecord], aspect_ratios: list[float], histograms: list[np.ndarray]) -> list[dict]:
+    if len(photos) < 2:
+        return [
+            {
+                "photoId": photos[0].id,
+                "sameObjectProbability": 1.0,
+                "status": "consistent",
+                "evidence": ["single photo project"],
+            }
+        ] if photos else []
+    median_aspect = float(np.median(aspect_ratios))
+    reports = []
+    for photo, aspect, hist in zip(photos, aspect_ratios, histograms):
+        color_distance = min(float(np.linalg.norm(hist - other)) for other in histograms if other is not hist) if len(histograms) > 1 else 0.0
+        aspect_penalty = min(abs(aspect - median_aspect) / max(median_aspect, 1e-6), 1.0)
+        probability = max(0.0, min(1.0, 1.0 - aspect_penalty * 0.55 - color_distance * 0.45))
+        if probability >= 0.85:
+            status = "consistent"
+        elif probability >= 0.7:
+            status = "probably-consistent"
+        elif probability >= 0.45:
+            status = "uncertain"
+        elif probability >= 0.25:
+            status = "probably-different"
+        else:
+            status = "different"
+        evidence = []
+        if aspect_penalty < 0.2:
+            evidence.append("matching width-to-height ratio")
+        if color_distance < 0.25:
+            evidence.append("matching dominant color layout")
+        if not evidence:
+            evidence.append("low agreement; user review recommended")
+        reports.append(
+            {
+                "photoId": photo.id,
+                "sameObjectProbability": round(probability, 3),
+                "status": status,
+                "evidence": evidence,
+            }
+        )
+    return reports
+
+
 def _classical_mask(image: Image.Image) -> tuple[Image.Image, Optional[list[int]]]:
     rgb = image.convert("RGB")
     bg = Image.new("RGB", rgb.size, tuple(int(value) for value in ImageStat.Stat(rgb).median[:3]))
@@ -565,6 +749,22 @@ def _classical_mask(image: Image.Image) -> tuple[Image.Image, Optional[list[int]
     if not bbox:
         return Image.new("L", rgb.size, 255), None
     return threshold.filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.MinFilter(3)), list(bbox)
+
+
+def _photo_landmarks_from_silhouette(silhouette: dict) -> list[dict]:
+    levels = silhouette.get("levels") or []
+    if not levels:
+        return []
+    widths = np.asarray([level["width"] for level in levels], dtype=np.float64)
+    max_idx = int(np.argmax(widths))
+    gradients = np.abs(np.diff(widths))
+    curvature_idx = int(np.argmax(gradients)) if len(gradients) else max_idx
+    return [
+        {"name": "highest_visible_point", "x": silhouette["centerlineX"], "y": 1.0, "confidence": silhouette["confidence"], "source": silhouette["photoId"]},
+        {"name": "lowest_support_plane", "x": silhouette["centerlineX"], "y": 0.0, "confidence": silhouette["confidence"], "source": silhouette["photoId"]},
+        {"name": "maximum_width_level", "x": silhouette["centerlineX"], "y": levels[max_idx]["y"], "confidence": silhouette["confidence"], "source": silhouette["photoId"]},
+        {"name": "strong_curvature_change", "x": silhouette["centerlineX"], "y": levels[curvature_idx]["y"], "confidence": round(silhouette["confidence"] * 0.7, 3), "source": silhouette["photoId"]},
+    ]
 
 
 def _infer_dimensions(photos: list[PhotoRecord], measurements: dict, package_type: str) -> tuple[dict, dict]:
@@ -577,7 +777,7 @@ def _infer_dimensions(photos: list[PhotoRecord], measurements: dict, package_typ
     if width is None:
         width = max(25.0, height * float(np.median(front_ratios)) * 0.72)
     if depth is None:
-        depth = max(20.0, height * float(np.median(side_ratios)) * 0.72) if side_ratios else max(20.0, width * (0.72 if package_type != "box" else 0.55))
+        depth = max(20.0, height * float(np.median(side_ratios)) * 0.72) if side_ratios else max(20.0, width * 0.72)
     dimensions = {"widthMm": round(width, 3), "heightMm": round(height, 3), "depthMm": round(depth, 3)}
     sources = {
         "widthMm": "measured" if _positive(measurements.get("widthMm") or measurements.get("width_mm") or measurements.get("diameterMm") or measurements.get("diameter_mm")) else "estimated-from-photo-set",
@@ -595,25 +795,37 @@ def _positive(value) -> Optional[float]:
         return None
 
 
-def _build_parametric_mesh(package_type: str, dimensions: dict):
-    w, h, d = dimensions["widthMm"], dimensions["heightMm"], dimensions["depthMm"]
-    if package_type in {"bottle", "jar", "tube", "pump_bottle", "trigger_bottle"}:
-        radius = max(w, d) / 2.0
-        mesh = o3d.geometry.TriangleMesh.create_cylinder(radius=radius, height=h, resolution=48)
-        mesh.rotate(mesh.get_rotation_matrix_from_xyz((np.pi / 2, 0, 0)), center=(0, 0, 0))
-        mesh.compute_vertex_normals()
-        return mesh
-    mesh = o3d.geometry.TriangleMesh.create_box(width=w, height=h, depth=d)
-    mesh.translate((-w / 2, -h / 2, -d / 2))
-    mesh.compute_vertex_normals()
-    return mesh
-
-
 def _mesh_to_glb(mesh) -> bytes:
     vertices = np.asarray(mesh.vertices)
     faces = np.asarray(mesh.triangles)
     tm = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
     return tm.export(file_type="glb")
+
+
+def _drawing_document_from_package(drawing_package: dict, reconstruction_model: dict) -> dict:
+    metadata = drawing_package.get("metadata", {})
+    return {
+        "version": 1,
+        "linkedModelVersion": reconstruction_model.get("version"),
+        "units": "mm",
+        "views": [
+            {"id": "front-view", "type": "front", "visible": True, "scale": 1.0},
+            {"id": "rear-view", "type": "rear", "visible": True, "scale": 1.0},
+            {"id": "left-view", "type": "left", "visible": True, "scale": 1.0},
+            {"id": "right-view", "type": "right", "visible": True, "scale": 1.0},
+            {"id": "top-view", "type": "top", "visible": True, "scale": 1.0},
+            {"id": "bottom-view", "type": "bottom", "visible": True, "scale": 1.0},
+        ],
+        "dimensions": [
+            {"id": "dim-overall-height", "feature": "overall-height", "valueMm": reconstruction_model.get("heightMm"), "source": "linked-model", "visible": True},
+            {"id": "dim-max-width", "feature": "maximum-width", "valueMm": metadata.get("bounding_box_mm", [None, None, None])[0], "source": "linked-model", "visible": True},
+            {"id": "dim-max-depth", "feature": "maximum-depth", "valueMm": metadata.get("bounding_box_mm", [None, None, None])[2], "source": "linked-model", "visible": True},
+        ],
+        "notes": [],
+        "sectionLines": [],
+        "titleBlock": {"title": "PackLab 3D Technical Drawing", "revision": "A", "scale": "1:1"},
+        "manualOverridesPreserved": True,
+    }
 
 
 def build_project_export(project: dict) -> bytes:

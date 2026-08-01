@@ -47,7 +47,7 @@ function fakeApi() {
       result: jobId === 'job-reconstruct'
         ? {
             report: {
-              method: 'parametric-multiview-silhouette-fit',
+              method: 'packlab-native-generic-profile-fit',
               photosUsed: ['photo-1', 'photo-2'],
               photosExcluded: [],
               confidence: 'medium',
@@ -63,8 +63,7 @@ function fakeApi() {
     })),
     getProjectAsset: jest.fn(async () => ({ arrayBuffer: new ArrayBuffer(8), headers: new Headers() })),
     getCapabilities: jest.fn(async () => ({
-      triposr: { available: false },
-      torch: { available: false },
+      native_reconstruction: { available: true },
       cuda: { available: false },
     })),
   };
@@ -162,8 +161,8 @@ test('component runs one unified reconstruction job and loads one final GLB', as
   expect(store.getState().pipeline.generated).toBeInstanceOf(ArrayBuffer);
   expect(store.getState().pipeline.cleaned).toBeInstanceOf(ArrayBuffer);
   expect(status).not.toHaveBeenCalledWith(expect.stringContaining('FAILED'));
-  expect(status).toHaveBeenLastCalledWith(expect.stringContaining('Unified design generated using parametric fallback'));
-  expect(status).toHaveBeenLastCalledWith(expect.stringContaining('parametric-multiview-silhouette-fit'));
+  expect(status).toHaveBeenLastCalledWith(expect.stringContaining('Unified design generated with PackLab native reconstruction'));
+  expect(status).toHaveBeenLastCalledWith(expect.stringContaining('packlab-native-generic-profile-fit'));
 });
 
 test('destroy revokes object URLs', async () => {

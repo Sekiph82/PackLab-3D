@@ -171,7 +171,7 @@ async function runScenario(name, index) {
       await page.waitForSelector('#diagnostics-dialog[open]', { timeout: 5000 });
       await page.keyboard.press('Escape').catch(() => {});
 
-      if (['multiphoto', 'primary-unified', 'one-photo-unified', 'label-mapping', 'label-timeout'].includes(name)) {
+      if (['multiphoto', 'primary-unified', 'one-photo-unified', 'label-mapping', 'label-timeout', 'native-reconstruction', 'editable-3d', 'linked-2d'].includes(name)) {
         const screenshotDir = process.env.PACKLAB_MULTIPHOTO_SCREENSHOT_DIR || '';
         const tenFiles = createSmokePngFiles(10);
         if (name === 'primary-unified') {
@@ -195,7 +195,7 @@ async function runScenario(name, index) {
           if (thumbnailCount !== 10) throw new Error(`Expected 10 thumbnails, got ${thumbnailCount}`);
         }
 
-        if (name === 'multiphoto' || name === 'primary-unified' || name === 'label-mapping' || name === 'label-timeout') {
+        if (name === 'multiphoto' || name === 'primary-unified' || name === 'label-mapping' || name === 'label-timeout' || name === 'native-reconstruction' || name === 'editable-3d' || name === 'linked-2d') {
           await page.locator('.multi-photo__actions button', { hasText: 'Remove All' }).click();
           await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 0, null, { timeout: 5000 });
         }
@@ -217,7 +217,7 @@ async function runScenario(name, index) {
         await page.locator('.multi-photo__actions button', { hasText: 'Create Unified Design' }).click();
         try {
           await page.waitForFunction(
-            () => (document.querySelector('.multi-photo__report')?.textContent || '').includes('Fallback used: Yes'),
+            () => (document.querySelector('.multi-photo__report')?.textContent || '').includes('Native Multi-Photo Reconstruction'),
             null,
             { timeout: 90000 }
           );
@@ -234,8 +234,32 @@ async function runScenario(name, index) {
         if (!reportText.includes('Provider used:')) throw new Error(`Provider status missing from report: ${reportText}`);
         const pipelineStatus = await page.locator('#pipeline-status').textContent();
         if (pipelineStatus.includes('generate-mesh FAILED')) throw new Error(`Legacy generate-mesh failure leaked into primary workflow: ${pipelineStatus}`);
-        if (!pipelineStatus.includes('Unified design generated using parametric fallback')) throw new Error(`Expected fallback success status, got: ${pipelineStatus}`);
+        if (!pipelineStatus.includes('Unified design generated with PackLab native reconstruction')) throw new Error(`Expected native reconstruction success status, got: ${pipelineStatus}`);
         if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase4-unified-design-fallback-${Date.now()}.png`), fullPage: true });
+
+        if (name === 'editable-3d' || name === 'linked-2d') {
+          await page.waitForSelector('.native-editor', { timeout: 10000 });
+          const heightInput = page.locator('.native-editor input[type="number"]').nth(0);
+          await heightInput.fill('155');
+          await page.locator('.native-editor button', { hasText: 'Apply 3D Edit' }).click();
+          await page.waitForFunction(
+            () => (document.querySelector('#pipeline-status')?.textContent || '').includes('3D model updated and linked 2D drawing refreshed'),
+            null,
+            { timeout: 60000 }
+          );
+          if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase6-editable-3d-${Date.now()}.png`), fullPage: true });
+        }
+
+        if (name === 'linked-2d') {
+          await page.locator('.native-editor input[type="text"]').fill('Smoke note persists');
+          await page.locator('.native-editor button', { hasText: 'Add Note' }).click();
+          await page.waitForFunction(
+            () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Drawing note added'),
+            null,
+            { timeout: 15000 }
+          );
+          if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase6-linked-2d-${Date.now()}.png`), fullPage: true });
+        }
 
         if (name === 'label-mapping' || name === 'label-timeout') {
           await page.locator('#export-panel button', { hasText: 'Label Design' }).click();

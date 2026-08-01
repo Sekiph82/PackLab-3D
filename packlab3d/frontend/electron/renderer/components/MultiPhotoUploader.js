@@ -102,9 +102,8 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
   const modeSelect = document.createElement('select');
   [
     ['auto', t('reconstruction.modes.auto', 'Auto')],
-    ['multiview_parametric', t('reconstruction.modes.multiViewParametric', 'Multi-View Parametric')],
-    ['basic_parametric', t('reconstruction.modes.basicParametric', 'Basic Parametric')],
-    ['experimental_ai_reference', t('reconstruction.modes.experimentalAiReference', 'Experimental AI Reference Mesh')],
+    ['native_reconstruction', t('reconstruction.modes.nativeReconstruction', 'Native Multi-Photo Reconstruction')],
+    ['generic_profile_fit', t('reconstruction.modes.genericProfileFit', 'Generic Profile Fit')],
   ].forEach(([value, label]) => {
     const option = document.createElement('option');
     option.value = value;
@@ -137,6 +136,9 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
   const report = document.createElement('div');
   report.className = 'multi-photo__report';
 
+  const nativeEditor = document.createElement('div');
+  nativeEditor.className = 'native-editor';
+
   input.addEventListener('change', () => addFiles(input.files));
   root.addEventListener('dragover', (event) => {
     event.preventDefault();
@@ -149,7 +151,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     addFiles(event.dataTransfer.files);
   });
 
-  root.append(input, actions, modeField, counter, error, providerStatus, grid, progress, report);
+  root.append(input, actions, modeField, counter, error, providerStatus, grid, progress, report, nativeEditor);
   container.appendChild(root);
   render();
 
@@ -396,7 +398,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
         reconstructionReport: state.report,
       },
     });
-    setStatus(`${t('reconstruction.fallbackSuccess', 'Unified design generated using parametric fallback.')}\n${reconstructionSummary(state.report)}`);
+    setStatus(`${t('reconstruction.nativeSuccess', 'Unified design generated with PackLab native reconstruction.')}\n${reconstructionSummary(state.report)}`);
     render();
   }
 
@@ -422,7 +424,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     return [
       t('reconstruction.complete', 'Unified reconstruction complete.'),
       `${t('reconstruction.providerUsed', 'Provider used')}: ${providerLabel(item.method)}`,
-      `${t('reconstruction.aiModelInstalled', 'AI model installed')}: ${aiInstalled() ? t('common.yes', 'Yes') : t('common.no', 'No')}`,
+      `${t('reconstruction.engineAvailable', 'Native engine available')}: ${nativeEngineAvailable() ? t('common.yes', 'Yes') : t('common.no', 'No')}`,
       `${t('reconstruction.fallbackUsed', 'Fallback used')}: ${fallbackUsed ? t('common.yes', 'Yes') : t('common.no', 'No')}`,
       `${t('reconstruction.method', 'Method')}: ${item.method}`,
       `${t('reconstruction.photosUsed', 'Photos used')}: ${(item.photosUsed || []).length}`,
@@ -442,29 +444,99 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     } else {
       report.textContent = '';
     }
+    renderNativeEditor();
+  }
+
+  function renderNativeEditor() {
+    nativeEditor.innerHTML = '';
+    if (!state.report || !state.projectId) return;
+    const title = document.createElement('div');
+    title.className = 'native-editor__title';
+    title.textContent = t('reconstruction.editor.title', 'Editable 3D and Linked 2D');
+    nativeEditor.appendChild(title);
+    const dims = state.report.dimensionsMm || {};
+    const heightInput = editorNumber('reconstruction.editor.height', 'Height (mm)', dims.heightMm || 120);
+    const widthInput = editorNumber('reconstruction.editor.width', 'Width (mm)', dims.widthMm || 50);
+    const depthInput = editorNumber('reconstruction.editor.depth', 'Depth (mm)', dims.depthMm || 35);
+    const applyButton = button('reconstruction.editor.apply', 'Apply 3D Edit', async () => {
+      try {
+        const result = await api.updateEditableModel({
+          projectId: state.projectId,
+          edits: {
+            heightMm: Number(heightInput.input.value),
+            widthMm: Number(widthInput.input.value),
+            depthMm: Number(depthInput.input.value),
+          },
+        });
+        const glb = await api.getProjectAsset({ projectId: state.projectId, assetName: 'finalMesh' });
+        if (viewer) await viewer.loadGlbArrayBuffer(glb.arrayBuffer);
+        state.report = {
+          ...state.report,
+          dimensionsMm: {
+            heightMm: Number(heightInput.input.value),
+            widthMm: Number(widthInput.input.value),
+            depthMm: Number(depthInput.input.value),
+          },
+          reconstructionModel: result.reconstructionModel,
+        };
+        syncStore({ pipeline: { ...(store.getState().pipeline || {}), glb: glb.arrayBuffer } });
+        setStatus(t('reconstruction.editor.updated', '3D model updated and linked 2D drawing refreshed.'));
+        render();
+      } catch (err) {
+        showError(err);
+      }
+    });
+    const noteInput = document.createElement('input');
+    noteInput.type = 'text';
+    noteInput.placeholder = t('reconstruction.editor.notePlaceholder', 'Drawing note');
+    const noteButton = button('reconstruction.editor.addNote', 'Add Note', async () => {
+      try {
+        await api.updateDrawingDocument({
+          projectId: state.projectId,
+          patch: { notes: [{ text: noteInput.value || t('reconstruction.editor.defaultNote', 'Manual note'), x: 10, y: 10 }] },
+        });
+        setStatus(t('reconstruction.editor.noteAdded', 'Drawing note added and will persist through model edits.'));
+      } catch (err) {
+        showError(err);
+      }
+    });
+    const fields = document.createElement('div');
+    fields.className = 'native-editor__fields';
+    fields.append(heightInput.label, widthInput.label, depthInput.label, applyButton, noteInput, noteButton);
+    nativeEditor.appendChild(fields);
+  }
+
+  function editorNumber(key, fallback, value) {
+    const label = document.createElement('label');
+    label.className = 'native-editor__field';
+    const span = document.createElement('span');
+    span.textContent = t(key, fallback);
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = '1';
+    input.step = '0.1';
+    input.value = String(value);
+    label.append(span, input);
+    return { label, input };
   }
 
   function renderProviderStatus() {
-    const torch = state.capabilities?.torch;
-    const triposr = state.capabilities?.triposr;
+    const nativeEngine = state.capabilities?.native_reconstruction;
     providerStatus.textContent = [
-      t('reconstruction.aiReconstruction', 'AI Reconstruction'),
-      `TripoSR: ${triposr?.available ? t('common.installed', 'Installed') : t('common.notInstalled', 'Not installed')}`,
-      `Torch: ${torch?.available ? t('common.installed', 'Installed') : t('common.notInstalled', 'Not installed')}`,
-      `${t('reconstruction.modelWeights', 'Model weights')}: ${t('common.notInstalled', 'Not installed')}`,
-      `CUDA: ${state.capabilities?.cuda?.available ? t('common.available', 'Available') : t('common.unavailable', 'Unavailable')}`,
+      t('reconstruction.nativeEngine', 'PackLab Reconstruction Engine'),
+      `${t('reconstruction.nativeMultiPhoto', 'Native multi-photo reconstruction')}: ${nativeEngine?.available ? t('common.available', 'Available') : t('common.unavailable', 'Unavailable')}`,
+      `CUDA: ${t('common.notRequired', 'Not required')}`,
       `${t('reconstruction.standardUnifiedDesign', 'Standard unified design')}: ${t('common.available', 'Available')}`,
-      `${t('reconstruction.parametricFallback', 'Multi-view parametric fallback')}: ${t('common.available', 'Available')}`,
+      `${t('reconstruction.genericEditableModel', 'Generic editable model')}: ${t('common.available', 'Available')}`,
     ].join(' | ');
   }
 
-  function aiInstalled() {
-    return Boolean(state.capabilities?.triposr?.available);
+  function nativeEngineAvailable() {
+    return Boolean(state.capabilities?.native_reconstruction?.available);
   }
 
   function providerLabel(method) {
-    if (/parametric-multiview|multiview.*parametric/i.test(method || '')) return t('reconstruction.modes.multiViewParametric', 'Multi-View Parametric');
-    if (/single-view|basic/i.test(method || '')) return t('reconstruction.modes.basicParametric', 'Basic Parametric');
+    if (/native|profile/i.test(method || '')) return t('reconstruction.modes.nativeReconstruction', 'Native Multi-Photo Reconstruction');
     return method || t('reconstruction.modes.auto', 'Auto');
   }
 

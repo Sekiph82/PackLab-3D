@@ -123,6 +123,32 @@ export function createApiClient(baseUrl) {
       return { arrayBuffer: await res.arrayBuffer(), headers: res.headers };
     },
 
+    async getEditableModel(projectId) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/editable-model`);
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async updateEditableModel({ projectId, edits }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/editable-model`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(edits),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async updateDrawingDocument({ projectId, patch }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/drawing-document`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
     async getCapabilities({ refresh = false } = {}) {
       const res = await fetch(`${baseUrl}/capabilities${refresh ? '?refresh=true' : ''}`);
       if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
