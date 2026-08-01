@@ -11,7 +11,6 @@ build/
 packlab3d/backend/dist/
 packlab3d/backend/build/
 packlab3d/frontend/resources/
-PackLab3DBackend.spec
 
 # --- Python ---
 __pycache__/
@@ -20,6 +19,7 @@ __pycache__/
 
 # --- Session / environment-specific ---
 .claude/
+logs/
 *.log
 
 # --- OS ---

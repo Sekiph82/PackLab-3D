@@ -78,3 +78,8 @@ def test_cleanup_mesh_full_pipeline():
     assert report["triangle_count"] == len(main.triangles)
     assert report["is_watertight"] is True
     assert report["vertex_count"] == len(cleaned.vertices)
+    assert report["before"]["components"] == 2
+    assert report["operations"]["removedComponents"] == 1
+    assert report["operations"]["removedFloatingArtifactTriangles"] == len(stray.triangles)
+    assert report["after"]["components"] == 1
+    assert report["status"] == "cleaned"

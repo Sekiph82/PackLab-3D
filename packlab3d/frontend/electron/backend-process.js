@@ -1,6 +1,7 @@
 const fs = require('fs');
 const net = require('net');
 const path = require('path');
+const { performance } = require('perf_hooks');
 const { spawn, execFile } = require('child_process');
 
 const BACKEND_HOST = '127.0.0.1';
@@ -40,6 +41,12 @@ async function waitForEndpoint(url, { timeoutMs, onAttempt }) {
 }
 
 function startBackend({ app, projectRoot, port, logDir, logger }) {
+  if (process.env.PACKLAB_FORCE_BACKEND_FAIL === '1') {
+    const err = new Error('Backend startup forced to fail by PACKLAB_FORCE_BACKEND_FAIL=1');
+    err.code = 'BACKEND_FORCED_FAILURE';
+    throw err;
+  }
+
   const backendUrl = `http://${BACKEND_HOST}:${port}`;
   const exePath = path.join(process.resourcesPath, 'backend', 'PackLab3DBackend.exe');
 
@@ -64,8 +71,9 @@ function startBackend({ app, projectRoot, port, logDir, logger }) {
 
   const stdoutPath = path.join(logDir, 'backend.log');
   const stderrPath = path.join(logDir, 'backend-stderr.log');
-  const stdout = fs.createWriteStream(stdoutPath, { flags: 'a' });
-  const stderr = fs.createWriteStream(stderrPath, { flags: 'a' });
+  const usePackagedLauncher = app.isPackaged;
+  const stdout = usePackagedLauncher ? null : fs.createWriteStream(stdoutPath, { flags: 'a' });
+  const stderr = usePackagedLauncher ? null : fs.createWriteStream(stderrPath, { flags: 'a' });
 
   logger.info('spawning backend', {
     command,
@@ -77,7 +85,24 @@ function startBackend({ app, projectRoot, port, logDir, logger }) {
     stderrPath,
   });
 
-  const child = spawn(command, args, {
+  let spawnCommand = command;
+  let spawnArgs = args;
+  if (usePackagedLauncher) {
+    const psScript = [
+      `$env:PACKLAB_BACKEND_HOST='${BACKEND_HOST}'`,
+      `$env:PACKLAB_BACKEND_PORT='${port}'`,
+      `$env:PACKLAB_LOG_DIR='${logDir.replace(/'/g, "''")}'`,
+      "$env:PACKLAB_PACKAGED='1'",
+      `$p = Start-Process -FilePath '${command.replace(/'/g, "''")}' -ArgumentList @('--host','${BACKEND_HOST}','--port','${port}') -WorkingDirectory '${cwd.replace(/'/g, "''")}' -WindowStyle Hidden -RedirectStandardOutput '${stdoutPath.replace(/'/g, "''")}' -RedirectStandardError '${stderrPath.replace(/'/g, "''")}' -PassThru`,
+      'Write-Output $p.Id',
+    ].join('; ');
+    spawnCommand = 'powershell.exe';
+    spawnArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript];
+  }
+
+  const spawnStartedAt = performance.now();
+  logger.info('backend spawn call started', { spawnStartedAt });
+  const child = spawn(spawnCommand, spawnArgs, {
     cwd,
     windowsHide: true,
     env: {
@@ -88,16 +113,48 @@ function startBackend({ app, projectRoot, port, logDir, logger }) {
       PACKLAB_PACKAGED: app.isPackaged ? '1' : '0',
     },
   });
+  child.packlabIsLauncher = usePackagedLauncher;
+  child.packlabBackendPid = usePackagedLauncher ? null : child.pid;
+  const spawnReturnedAt = performance.now();
+  const spawnCallDurationMs = spawnReturnedAt - spawnStartedAt;
+  logger.info('backend spawn call returned', {
+    spawnReturnedAt,
+    spawnCallDurationMs: Number(spawnCallDurationMs.toFixed(2)),
+    pid: child.pid,
+  });
 
-  child.stdout?.on('data', (data) => stdout.write(data));
-  child.stderr?.on('data', (data) => stderr.write(data));
+  child.once('spawn', () => {
+    logger.info('backend process spawn event', {
+      pid: child.pid,
+      launcher: usePackagedLauncher,
+      processSpawnEventDelayMs: Number((performance.now() - spawnStartedAt).toFixed(2)),
+    });
+  });
+
+  if (usePackagedLauncher) {
+    child.stdout?.on('data', (data) => {
+      const pid = Number(String(data).trim().split(/\s+/).find((item) => /^\d+$/.test(item)));
+      if (pid) {
+        child.packlabBackendPid = pid;
+        logger.info('backend launcher reported pid', { pid });
+      }
+    });
+    child.stderr?.on('data', (data) => {
+      logger.warn('backend launcher stderr', { message: String(data).trim() });
+    });
+  } else {
+    child.stdout?.on('data', (data) => stdout?.write(data));
+    child.stderr?.on('data', (data) => stderr?.write(data));
+  }
   child.on('error', (err) => {
     logger.error('backend process error', { code: err.code, stack: err.stack, message: err.message });
   });
   child.on('exit', (code, signal) => {
     logger.warn('backend exited', { code, signal });
-    stdout.end();
-    stderr.end();
+    if (!usePackagedLauncher) {
+      stdout?.end();
+      stderr?.end();
+    }
   });
 
   return {
@@ -107,18 +164,25 @@ function startBackend({ app, projectRoot, port, logDir, logger }) {
     command,
     cwd,
     port,
+    spawnStartedAt,
+    spawnReturnedAt,
+    spawnCallDurationMs,
+    backendPid: () => child.packlabBackendPid || child.pid,
+    launcher: usePackagedLauncher,
   };
 }
 
 function stopBackend(child, logger) {
-  if (!child || child.killed || child.exitCode !== null) return Promise.resolve();
-  logger.info('stopping backend', { pid: child.pid });
-  child.kill('SIGTERM');
+  if (!child) return Promise.resolve();
+  const targetPid = child.packlabBackendPid || child.pid;
+  if (!targetPid) return Promise.resolve();
+  logger.info('stopping backend', { pid: targetPid, launcherPid: child.pid, launcher: child.packlabIsLauncher });
+  if (!child.packlabIsLauncher && !child.killed && child.exitCode === null) child.kill('SIGTERM');
 
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
-      if (process.platform === 'win32' && child.pid) {
-        execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, (err) => {
+      if (process.platform === 'win32' && targetPid) {
+        execFile('taskkill.exe', ['/PID', String(targetPid), '/T', '/F'], { windowsHide: true }, (err) => {
           if (err) logger.warn('backend forced stop failed', { message: err.message });
           resolve();
         });
@@ -131,6 +195,18 @@ function stopBackend(child, logger) {
         resolve();
       }
     }, 3000);
+
+    if (child.packlabIsLauncher) {
+      const killArgs = child.packlabBackendPid
+        ? ['/PID', String(targetPid), '/T', '/F']
+        : ['/IM', 'PackLab3DBackend.exe', '/T', '/F'];
+      execFile('taskkill.exe', killArgs, { windowsHide: true }, (err) => {
+        clearTimeout(timeout);
+        if (err) logger.warn('backend forced stop failed', { message: err.message });
+        resolve();
+      });
+      return;
+    }
 
     child.once('exit', () => {
       clearTimeout(timeout);

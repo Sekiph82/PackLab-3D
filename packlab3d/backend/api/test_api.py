@@ -136,6 +136,17 @@ def test_cleanup_mesh_success():
     assert response.headers["X-Triangle-Count"] == str(len(main.triangles))
 
 
+def test_capabilities_returns_structured_results():
+    response = client.get("/capabilities?refresh=true")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["open3d"]["available"] is True
+    assert data["open3d"]["status"] in {"available", "import-error"}
+    assert "loadTimeMs" in data["open3d"]
+    assert data["triposr"]["available"] is False
+    assert data["sam"]["status"] in {"available", "not-configured"}
+
+
 def test_apply_wall_thickness_default_material_and_thickness():
     files = {"file": ("box.obj", _box_obj_bytes(100, 100, 100), "application/octet-stream")}
     response = client.post(

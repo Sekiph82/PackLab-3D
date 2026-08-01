@@ -38,7 +38,12 @@ def test_apply_wall_thickness_volumes_and_watertightness():
     assert result.material_volume_ml > 0
 
     assert result.is_watertight is True
+    assert result.outer_watertight is True
+    assert result.inner_watertight is True
+    assert result.combined_shell_watertight is True
     assert result.self_intersecting is False
+    assert result.confidence in {"MEDIUM", "HIGH"}
+    assert result.estimated_internal_capacity_ml == pytest.approx(result.inner_volume_ml)
 
 
 def test_apply_wall_thickness_combined_mesh_has_both_shells():

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const asar = require('@electron/asar');
 
 const frontendRoot = path.resolve(__dirname, '..');
@@ -20,6 +21,7 @@ mustExist(path.join(releaseRoot, 'PackLab3D.exe'), 'PackLab3D.exe');
 mustExist(appAsar, 'app.asar');
 mustExist(path.join(releaseRoot, 'resources', 'backend', 'PackLab3DBackend.exe'), 'backend executable');
 mustExist(path.join(releaseRoot, 'resources', 'logo-pack', '512x512 px.png'), 'logo resource');
+mustExist(path.join(releaseRoot, 'release-manifest.json'), 'release manifest');
 
 let files = [];
 let archiveFiles = [];
@@ -52,6 +54,23 @@ if (!combined.includes('threejs-viewer')) fail('viewer markup was not found in r
 
 const pkg = JSON.parse(fs.readFileSync(path.join(frontendRoot, 'package.json'), 'utf8'));
 if (!pkg.version) fail('package version missing');
+
+try {
+  const manifest = JSON.parse(fs.readFileSync(path.join(releaseRoot, 'release-manifest.json'), 'utf8'));
+  if (manifest.rendererBundler !== 'vite') fail('manifest rendererBundler is not vite');
+  if (manifest.backendPackaging !== 'onedir') fail('manifest backendPackaging is not onedir');
+  for (const entry of Object.values(manifest.files || {})) {
+    const fullPath = path.join(releaseRoot, entry.path);
+    mustExist(fullPath, `manifest file ${entry.path}`);
+    const data = fs.readFileSync(fullPath);
+    const sha256 = crypto.createHash('sha256').update(data).digest('hex');
+    if (entry.size !== data.length) fail(`manifest size mismatch for ${entry.path}`);
+    if (entry.sha256 !== sha256) fail(`manifest sha256 mismatch for ${entry.path}`);
+    if (path.isAbsolute(entry.path)) fail(`manifest contains absolute path: ${entry.path}`);
+  }
+} catch (err) {
+  fail(`release manifest invalid: ${err.message}`);
+}
 
 if (process.exitCode) process.exit(process.exitCode);
 console.log('[verify-release] OK');

@@ -4,6 +4,8 @@ import platform
 import sys
 import tempfile
 import time
+import importlib
+import importlib.metadata
 import importlib.util
 from pathlib import Path
 from typing import Optional
@@ -20,6 +22,7 @@ from packlab3d.core.utils.errors import ModelNotAvailableError
 
 logger = logging.getLogger("packlab3d.api")
 IMPORT_STARTED_AT = time.perf_counter()
+_CAPABILITY_CACHE: Optional[dict] = None
 
 app = FastAPI(title="PackLab 3D API", version="0.1.0")
 
@@ -148,35 +151,149 @@ def _module_available(name: str) -> bool:
         return False
 
 
-@app.get("/capabilities")
-def capabilities():
-    torch_available = _module_available("torch")
-    cuda = False
-    if torch_available:
+def _module_version(distribution: str) -> Optional[str]:
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _capability(
+    import_name: str,
+    *,
+    distribution: Optional[str] = None,
+    import_for_version: bool = False,
+    reason: Optional[str] = None,
+) -> dict:
+    started = time.perf_counter()
+    if not _module_available(import_name):
+        return {
+            "available": False,
+            "status": "not-installed",
+            "version": None,
+            "reason": reason or f"{import_name} package is not installed",
+            "loadTimeMs": round((time.perf_counter() - started) * 1000, 2),
+        }
+    version_value = _module_version(distribution or import_name)
+    if import_for_version:
         try:
-            import torch
-
-            cuda = bool(torch.cuda.is_available())
-        except Exception:
-            cuda = False
-
-    freecad = _module_available("FreeCAD") and _module_available("Part")
-    occ = _module_available("OCC") and _module_available("OCC.Core")
-    triposr = torch_available and _module_available("tsr")
-    sam = torch_available and _module_available("segment_anything") and bool(os.environ.get("PACKLAB_SAM_CHECKPOINT"))
-    caps = {
-        "open3d": _module_available("open3d"),
-        "trimesh": _module_available("trimesh"),
-        "pygltflib": _module_available("pygltflib"),
-        "triposr": triposr,
-        "sam": sam,
-        "cuda": cuda,
-        "freecad": freecad,
-        "occ": occ,
-        "label_engine": True,
-        "glb_export": _module_available("pygltflib"),
+            module = importlib.import_module(import_name)
+            version_value = getattr(module, "__version__", version_value)
+        except Exception as exc:
+            return {
+                "available": False,
+                "status": "import-error",
+                "version": version_value,
+                "reason": str(exc),
+                "loadTimeMs": round((time.perf_counter() - started) * 1000, 2),
+            }
+    return {
+        "available": True,
+        "status": "available",
+        "version": version_value,
+        "reason": None,
+        "loadTimeMs": round((time.perf_counter() - started) * 1000, 2),
     }
-    return caps
+
+
+def _static_capability(available: bool, status: str, reason: Optional[str] = None) -> dict:
+    return {
+        "available": bool(available),
+        "status": status,
+        "version": None,
+        "reason": reason,
+        "loadTimeMs": 0,
+    }
+
+
+def _cuda_capability(torch_cap: dict) -> dict:
+    started = time.perf_counter()
+    if not torch_cap["available"]:
+        return {
+            "available": False,
+            "status": "torch-unavailable",
+            "version": None,
+            "reason": "Torch is not installed",
+            "loadTimeMs": round((time.perf_counter() - started) * 1000, 2),
+        }
+    try:
+        import torch
+
+        available = bool(torch.cuda.is_available())
+        return {
+            "available": available,
+            "status": "available" if available else "not-available",
+            "version": getattr(torch.version, "cuda", None),
+            "reason": None if available else "CUDA is not available in this environment",
+            "loadTimeMs": round((time.perf_counter() - started) * 1000, 2),
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "status": "probe-error",
+            "version": None,
+            "reason": str(exc),
+            "loadTimeMs": round((time.perf_counter() - started) * 1000, 2),
+        }
+
+
+def _build_capabilities() -> dict:
+    open3d_cap = _capability("open3d", import_for_version=True)
+    trimesh_cap = _capability("trimesh", import_for_version=True)
+    pygltflib_cap = _capability("pygltflib", distribution="pygltflib")
+    pillow_cap = _capability("PIL", distribution="Pillow")
+    qrcode_cap = _capability("qrcode")
+    barcode_cap = _capability("barcode", distribution="python-barcode")
+    torch_cap = _capability("torch", import_for_version=True)
+    tsr_cap = _capability("tsr", distribution="tsr", reason="The tsr package and model files are not installed")
+    sam_installed = _module_available("segment_anything")
+    sam_checkpoint = bool(os.environ.get("PACKLAB_SAM_CHECKPOINT"))
+    sam_cap = _static_capability(
+        sam_installed and sam_checkpoint,
+        "available" if sam_installed and sam_checkpoint else "not-configured",
+        None if sam_installed and sam_checkpoint else "segment_anything and PACKLAB_SAM_CHECKPOINT are required",
+    )
+    freecad_cap = _static_capability(
+        _module_available("FreeCAD") and _module_available("Part"),
+        "available" if _module_available("FreeCAD") and _module_available("Part") else "not-installed",
+        None if _module_available("FreeCAD") and _module_available("Part") else "FreeCAD Python modules are not installed",
+    )
+    occ_available = _module_available("OCC") and _module_available("OCC.Core")
+    occ_cap = _static_capability(
+        occ_available,
+        "available" if occ_available else "not-installed",
+        None if occ_available else "OCC.Core is not installed",
+    )
+    return {
+        "open3d": open3d_cap,
+        "trimesh": trimesh_cap,
+        "pygltflib": pygltflib_cap,
+        "pillow": pillow_cap,
+        "qr_generation": qrcode_cap,
+        "barcode_generation": barcode_cap,
+        "triposr": _static_capability(
+            torch_cap["available"] and tsr_cap["available"],
+            "available" if torch_cap["available"] and tsr_cap["available"] else "not-installed",
+            None if torch_cap["available"] and tsr_cap["available"] else "The tsr package and model files are not installed",
+        ),
+        "torch": torch_cap,
+        "cuda": _cuda_capability(torch_cap),
+        "sam": sam_cap,
+        "freecad": freecad_cap,
+        "occ": occ_cap,
+        "svg_generation": _static_capability(True, "available"),
+        "dxf_generation": _static_capability(True, "available"),
+        "label_engine": _static_capability(True, "available"),
+        "glb_export": _static_capability(pygltflib_cap["available"] and trimesh_cap["available"], "available" if pygltflib_cap["available"] and trimesh_cap["available"] else "degraded"),
+    }
+
+
+@app.get("/capabilities")
+def capabilities(refresh: bool = False):
+    global _CAPABILITY_CACHE
+    if refresh or _CAPABILITY_CACHE is None:
+        _CAPABILITY_CACHE = _build_capabilities()
+    return _CAPABILITY_CACHE
 
 
 @app.post("/set-language", response_model=StatusResponse)
@@ -345,6 +462,8 @@ async def apply_wall_thickness(
         raise HTTPException(status_code=400, detail=get_message("errors.invalidDimensions", lang))
 
     props = get_material_properties(resolved_material)
+    if result.material_volume_ml is not None:
+        result.estimated_material_mass_g = result.material_volume_ml * props.density_g_cm3
 
     def _fmt(value):
         return "" if value is None else f"{value:.6f}"
@@ -361,9 +480,16 @@ async def apply_wall_thickness(
             "X-Outer-Volume-Ml": _fmt(result.outer_volume_ml),
             "X-Inner-Volume-Ml": _fmt(result.inner_volume_ml),
             "X-Material-Volume-Ml": _fmt(result.material_volume_ml),
+            "X-Estimated-Material-Mass-G": _fmt(result.estimated_material_mass_g),
+            "X-Estimated-Internal-Capacity-Ml": _fmt(result.estimated_internal_capacity_ml),
             "X-Bounding-Box-Mm": ",".join(f"{v:.3f}" for v in result.bounding_box_mm),
             "X-Is-Watertight": str(result.is_watertight).lower(),
+            "X-Outer-Watertight": str(result.outer_watertight).lower(),
+            "X-Inner-Watertight": str(result.inner_watertight).lower(),
+            "X-Combined-Shell-Watertight": str(result.combined_shell_watertight).lower(),
             "X-Self-Intersecting": str(result.self_intersecting).lower(),
+            "X-Confidence": result.confidence,
+            "X-Warnings": quote("|".join(result.warnings), safe=""),
         },
     )
 
@@ -520,7 +646,7 @@ async def apply_label_to_3d(
 ):
     from packlab3d.backend.label_mapping.apply_label import apply_label_to_mesh
     from packlab3d.backend.label_mapping.bake_texture import bake_texture
-    from packlab3d.backend.label_mapping.export_glb import export_to_glb
+    from packlab3d.backend.label_mapping.export_glb import export_to_glb, validate_glb
     from packlab3d.backend.label_mapping.uv import UVMode
     from packlab3d.core.utils.packaging import PackagingType
 
@@ -560,6 +686,7 @@ async def apply_label_to_3d(
 
     result = apply_label_to_mesh(mesh, resolved_uv_mode, texture)
     glb_bytes = export_to_glb(result)
+    validation = validate_glb(glb_bytes, expect_texture=True, expect_uv=True)
 
     return Response(
         content=glb_bytes,
@@ -570,6 +697,11 @@ async def apply_label_to_3d(
             "X-UV-Mode": resolved_uv_mode.value,
             "X-Texture-Resolution": f"{texture_resolution}x{texture_resolution}",
             "X-File-Count": "1",
+            "X-GLB-Valid": str(validation["valid"]).lower(),
+            "X-GLB-Mesh-Count": str(validation["meshCount"]),
+            "X-GLB-Node-Count": str(validation["nodeCount"]),
+            "X-GLB-Texture-Count": str(validation["textureCount"]),
+            "X-GLB-Has-UV": str(validation["hasUV"]).lower(),
         },
     )
 

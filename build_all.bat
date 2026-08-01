@@ -45,3 +45,4 @@ if errorlevel 1 (
 
 echo [build_all] Done. %ROOT%release\PackLab3D.exe
 endlocal
+exit /b 0

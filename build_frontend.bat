@@ -105,6 +105,12 @@ if not exist "%RELEASE_DIR%\PackLab3D.exe" (
 
 echo [build_frontend] Verifying release contents...
 pushd "%FRONTEND_DIR%"
+call npm run manifest:release
+if errorlevel 1 (
+    popd
+    echo [build_frontend] ERROR: release manifest generation failed.
+    exit /b 1
+)
 call npm run verify:release
 if errorlevel 1 (
     popd
@@ -115,3 +121,4 @@ popd
 
 echo [build_frontend] Done. Output: %RELEASE_DIR%\PackLab3D.exe
 endlocal
+exit /b 0

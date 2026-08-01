@@ -5,6 +5,10 @@ const os = require('os');
 const { createLogger, ensureLogDir, getLogDir } = require('./logger');
 const { findAvailablePort, startBackend, stopBackend, waitForEndpoint } = require('./backend-process');
 
+if (process.env.PACKLAB_REMOTE_DEBUGGING_PORT) {
+  app.commandLine.appendSwitch('remote-debugging-port', String(process.env.PACKLAB_REMOTE_DEBUGGING_PORT));
+}
+
 const PROJECT_ROOT = path.join(__dirname, '..', '..', '..');
 const LOGO_PACK_DIR = path.join(PROJECT_ROOT, 'PackLab 3D logo pack');
 const WINDOW_ICON_PATH = path.join(LOGO_PACK_DIR, '512x512 px.png');
@@ -19,6 +23,38 @@ let startupLogger = null;
 let electronLogger = null;
 let startupStartedAt = Date.now();
 const startupEvents = [];
+let isQuitting = false;
+
+const STARTUP_PROGRESS = {
+  'Electron process start': 15,
+  'Main process initialization': 18,
+  'Desktop interface started': 20,
+  'Main window creation': 24,
+  'Renderer DOM ready': 30,
+  'Three.js viewer ready': 34,
+  'Backend executable lookup': 40,
+  'Backend process spawn call started': 43,
+  'Backend process spawn call returned': 48,
+  'Backend process spawn event': 52,
+  'First backend output': 58,
+  'Health live available': 68,
+  'Core backend ready': 78,
+  'Capabilities loaded': 88,
+  'Open3D available': 92,
+  'Application ready': 100,
+  'Backend startup failed': 100,
+};
+
+function progressFor(stage, state) {
+  const progress = STARTUP_PROGRESS[stage];
+  if (state === 'error' && stage !== 'Backend startup failed') return undefined;
+  return progress;
+}
+
+function capabilityAvailable(capability) {
+  if (typeof capability === 'boolean') return capability;
+  return Boolean(capability?.available);
+}
 
 function packageInfo() {
   const pkgPath = path.join(__dirname, '..', 'package.json');
@@ -30,19 +66,20 @@ function packageInfo() {
 }
 
 function emitStartup(stage, state, detail = {}) {
+  const progress = detail.progress ?? progressFor(stage, state);
   const event = {
     timestamp: new Date().toISOString(),
     elapsedMs: Date.now() - startupStartedAt,
     stage,
     state,
+    ...(progress !== undefined ? { progress } : {}),
     ...detail,
   };
   startupEvents.push(event);
   startupLogger?.info('startup stage', event);
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('startup:stage', event);
-    const complete = startupEvents.filter((item) => item.state === 'success' || item.state === 'warning').length;
-    mainWindow.webContents.send('backend:progress', Math.min(100, Math.round((complete / 9) * 100)));
+    if (progress !== undefined) mainWindow.webContents.send('backend:progress', Math.max(0, Math.min(100, Math.round(progress))));
   }
   return event;
 }
@@ -111,6 +148,7 @@ async function bootBackend() {
   try {
     const port = await findAvailablePort();
     emitStartup('Backend executable lookup', 'success', { port, packaged: app.isPackaged });
+    emitStartup('Backend process spawn call started', 'running', { port });
     backendInfo = startBackend({
       app,
       projectRoot: PROJECT_ROOT,
@@ -119,30 +157,39 @@ async function bootBackend() {
       logger: electronLogger,
     });
     backendProcess = backendInfo.child;
-    emitStartup('Backend process launched', 'success', {
-      pid: backendProcess.pid,
+    emitStartup('Backend process spawn call returned', 'success', {
+      pid: backendInfo.backendPid(),
+      launcherPid: backendProcess.pid,
       port,
       backendUrl: backendInfo.backendUrl,
       executable: backendInfo.exePath || backendInfo.command,
+      spawnCallDurationMs: Number(backendInfo.spawnCallDurationMs.toFixed(2)),
+    });
+    backendProcess.once('spawn', () => {
+      emitStartup('Backend process spawn event', 'success', {
+        pid: backendInfo.backendPid(),
+        launcherPid: backendProcess.pid,
+        processSpawnEventDelayMs: Number((Date.now() - startupStartedAt).toFixed(2)),
+      });
     });
 
     let sawOutput = false;
     backendProcess.stdout?.once('data', () => {
       sawOutput = true;
-      emitStartup('First backend output', 'success');
+      emitStartup('First backend output', 'success', { firstStdoutDelayMs: Date.now() - startupStartedAt });
     });
     backendProcess.stderr?.once('data', () => {
-      if (!sawOutput) emitStartup('First backend output', 'warning', { stream: 'stderr' });
+      if (!sawOutput) emitStartup('First backend output', 'warning', { stream: 'stderr', firstStderrDelayMs: Date.now() - startupStartedAt });
     });
 
     const live = await waitForEndpoint(`${backendInfo.backendUrl}/health/live`, {
       timeoutMs: STARTUP_TIMEOUT_MS,
       onAttempt: (_attempt, elapsedMs) => {
-        if (elapsedMs > 1000 && elapsedMs < 1400) emitStartup('Health endpoint available', 'running');
+        if (elapsedMs > 1000 && elapsedMs < 1400) emitStartup('Health live available', 'running');
       },
     });
     if (!live.ok) throw new Error(`Backend health timeout after ${live.elapsedMs} ms`);
-    emitStartup('Health endpoint available', 'success', { healthElapsedMs: live.elapsedMs, attempts: live.attempts });
+    emitStartup('Health live available', 'success', { healthLiveDelayMs: live.elapsedMs, attempts: live.attempts });
 
     const readyResponse = await fetch(`${backendInfo.backendUrl}/health/ready`);
     const ready = await readyResponse.json();
@@ -151,16 +198,17 @@ async function bootBackend() {
     const capabilitiesResponse = await fetch(`${backendInfo.backendUrl}/capabilities`);
     const capabilities = await capabilitiesResponse.json();
     fs.writeFileSync(path.join(getLogDir(), 'capabilities.json'), JSON.stringify(capabilities, null, 2));
-    emitStartup('Open3D available', capabilities.open3d ? 'success' : 'error', { open3d: capabilities.open3d });
-    if (!capabilities.triposr) emitStartup('TripoSR model unavailable', 'warning');
-    if (!capabilities.sam) emitStartup('SAM model unavailable', 'warning');
+    emitStartup('Capabilities loaded', 'success', { capabilityCount: Object.keys(capabilities).length });
+    emitStartup('Open3D available', capabilityAvailable(capabilities.open3d) ? 'success' : 'error', { open3d: capabilities.open3d });
+    if (!capabilityAvailable(capabilities.triposr)) emitStartup('TripoSR model unavailable', 'warning');
+    if (!capabilityAvailable(capabilities.sam)) emitStartup('SAM model unavailable', 'warning');
     emitStartup('Application ready', 'success', { totalMs: Date.now() - startupStartedAt });
-    return { ready: true, url: backendInfo.backendUrl, port, capabilities, startupEvents };
+    return { ready: true, mode: 'CORE_ONLY', url: backendInfo.backendUrl, port, backendPid: backendInfo.backendPid(), capabilities, startupEvents };
   } catch (err) {
     writeCrash(err, { phase: 'backend-startup' });
     electronLogger.error('backend startup failed', { message: err.message, stack: err.stack });
     emitStartup('Backend startup failed', 'error', { message: err.message });
-    return { ready: false, url: backendInfo?.backendUrl || null, error: err.message, startupEvents };
+    return { ready: false, mode: 'VIEWER_ONLY', url: backendInfo?.backendUrl || null, error: err.message, startupEvents };
   }
 }
 
@@ -179,10 +227,21 @@ function diagnosticsPayload() {
     pid: process.pid,
     packaged: app.isPackaged,
     backendUrl: backendInfo?.backendUrl || null,
-    backendPid: backendProcess?.pid || null,
+    backendPid: backendInfo?.backendPid?.() || backendProcess?.pid || null,
+    diagnosticsMode: process.argv.includes('--diagnostics') || process.env.PACKLAB_DIAGNOSTICS === '1',
     logDir: getLogDir(),
     startupEvents,
   };
+}
+
+function restartBackend() {
+  backendReadyPromise = new Promise((resolve) => {
+    resolveBackendReady = resolve;
+  });
+  bootBackend().then((result) => {
+    if (resolveBackendReady) resolveBackendReady(result);
+  });
+  return backendReadyPromise;
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -232,8 +291,13 @@ if (!gotLock) {
 
 ipcMain.handle('backend:get-url', () => backendInfo?.backendUrl || null);
 ipcMain.handle('backend:wait-ready', async () => backendReadyPromise || { ready: false, error: 'Backend startup has not begun.' });
+ipcMain.handle('backend:retry', async () => restartBackend());
 ipcMain.handle('diagnostics:get', () => diagnosticsPayload());
 ipcMain.handle('diagnostics:open-logs', () => shell.openPath(getLogDir()));
+ipcMain.handle('app:quit', async () => {
+  app.quit();
+  return { quitting: true };
+});
 
 ipcMain.handle('dialog:save-file', async (_event, { defaultName, buffer }) => {
   const safeDefaultName = path.basename(String(defaultName || 'packlab3d-export.bin'));
@@ -250,10 +314,12 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async (event) => {
-  if (backendProcess && backendProcess.exitCode === null && !backendProcess.killed) {
+  if (backendProcess && (backendInfo?.backendPid?.() || (backendProcess.exitCode === null && !backendProcess.killed))) {
+    if (isQuitting) return;
     event.preventDefault();
+    isQuitting = true;
     await stopBackend(backendProcess, electronLogger || console);
     backendProcess = null;
-    app.quit();
+    app.exit(0);
   }
 });

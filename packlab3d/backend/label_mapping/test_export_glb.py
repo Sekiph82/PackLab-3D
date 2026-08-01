@@ -2,7 +2,7 @@ import open3d as o3d
 from PIL import Image
 
 from packlab3d.backend.label_mapping.apply_label import apply_label_to_mesh
-from packlab3d.backend.label_mapping.export_glb import export_to_glb, load_glb
+from packlab3d.backend.label_mapping.export_glb import export_to_glb, load_glb, validate_glb
 from packlab3d.backend.label_mapping.uv import UVMode
 
 
@@ -39,3 +39,19 @@ def test_export_to_glb_round_trips_uvs_and_texture():
     loaded = list(scene.geometry.values())[0]
     assert loaded.visual.uv is not None
     assert len(loaded.visual.uv) == len(loaded.vertices)
+
+
+def test_validate_glb_reports_textured_mesh():
+    result = apply_label_to_mesh(_box(), UVMode.BOX, _texture())
+    report = validate_glb(export_to_glb(result), expect_texture=True, expect_uv=True)
+    assert report["valid"] is True
+    assert report["meshCount"] >= 1
+    assert report["nodeCount"] >= 1
+    assert report["textureCount"] >= 1
+    assert report["hasUV"] is True
+
+
+def test_validate_glb_rejects_corrupt_bytes():
+    report = validate_glb(b"not a glb")
+    assert report["valid"] is False
+    assert report["warnings"]

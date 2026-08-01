@@ -11,6 +11,7 @@ set ENTRY=%BACKEND_DIR%\api\main.py
 set DIST_DIR=%BACKEND_DIR%\dist
 set BUILD_DIR=%BACKEND_DIR%\build
 set STAGE_DIR=%ROOT%packlab3d\frontend\resources\backend
+set SPEC=%ROOT%PackLab3DBackend.spec
 
 if not exist "%ENTRY%" (
     echo [build_backend] ERROR: %ENTRY% not found.
@@ -40,7 +41,7 @@ if exist "%BUILD_DIR%" rmdir /S /Q "%BUILD_DIR%"
 if exist "%STAGE_DIR%" rmdir /S /Q "%STAGE_DIR%"
 
 echo [build_backend] Running PyInstaller onedir...
-"%PYINSTALLER%" --noconfirm --onedir --distpath "%DIST_DIR%" --workpath "%BUILD_DIR%" --name PackLab3DBackend --hidden-import pygltflib --add-data "%ROOT%packlab3d\backend\i18n;packlab3d\backend\i18n" "%ENTRY%"
+"%PYINSTALLER%" --noconfirm --distpath "%DIST_DIR%" --workpath "%BUILD_DIR%" "%SPEC%"
 if errorlevel 1 (
     echo [build_backend] ERROR: PyInstaller build failed.
     exit /b 1
@@ -56,3 +57,4 @@ if errorlevel 8 (
 
 echo [build_backend] Done: %STAGE_DIR%\PackLab3DBackend.exe
 endlocal
+exit /b 0

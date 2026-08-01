@@ -5,9 +5,10 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $TargetExe = Join-Path $Root "release\PackLab3D.exe"
+$ReleaseDir = Split-Path -Parent $TargetExe
 $Desktop = [Environment]::GetFolderPath("DesktopDirectory")
 $ShortcutPath = Join-Path $Desktop "PackLab 3D.lnk"
-$WorkingDirectory = $Root
+$WorkingDirectory = $ReleaseDir
 
 if (-not (Test-Path -LiteralPath $TargetExe)) {
     Write-Error "[create_shortcut] Target not found: $TargetExe. Build the app first."

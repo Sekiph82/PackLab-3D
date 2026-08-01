@@ -10,8 +10,10 @@
     "build": "vite build",
     "build:renderer": "vite build",
     "build:win": "npm run build:renderer && electron-builder --config electron-builder.yml --win",
+    "manifest:release": "node scripts/generate-release-manifest.js",
     "verify:release": "node scripts/verify-release.js",
     "smoke:packaged": "node scripts/smoke-packaged.js",
+    "measure:startup": "node scripts/measure-startup.js",
     "postinstall": "electron-builder install-app-deps",
     "test": "jest",
     "test:e2e": "playwright test"

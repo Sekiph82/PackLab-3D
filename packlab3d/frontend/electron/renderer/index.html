@@ -10,11 +10,17 @@
 <body>
   <div id="splash">
     <canvas id="splash-canvas"></canvas>
+    <img id="splash-logo" class="splash-logo" alt="" />
     <div class="splash-title">PackLab 3D</div>
     <div class="splash-slogan" data-i18n="splash.slogan">Precision Packaging Design.</div>
     <div id="loading-container">
       <div id="loading-text">Loading... 0%</div>
       <div id="loading-bar"><div id="loading-progress"></div></div>
+      <div id="loading-stage" class="loading-stage">Desktop interface starting...</div>
+      <div id="startup-failure-actions" class="startup-failure-actions" hidden>
+        <button id="retry-backend-button" type="button">Retry Backend</button>
+      </div>
+      <div class="startup-stages__heading">Detailed startup diagnostics</div>
       <div id="startup-stages" class="startup-stages"></div>
     </div>
   </div>

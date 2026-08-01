@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('packlab', {
   backend: {
     getUrl: () => ipcRenderer.invoke('backend:get-url'),
     waitReady: () => ipcRenderer.invoke('backend:wait-ready'),
+    retry: () => ipcRenderer.invoke('backend:retry'),
   },
   diagnostics: {
     get: () => ipcRenderer.invoke('diagnostics:get'),
@@ -62,6 +63,13 @@ contextBridge.exposeInMainWorld('packlab', {
   files: {
     save: (defaultName, arrayBuffer) =>
       ipcRenderer.invoke('dialog:save-file', { defaultName, buffer: arrayBuffer }),
+  },
+  app: {
+    quit: () => ipcRenderer.invoke('app:quit'),
+  },
+  config: {
+    diagnosticsMode: process.argv.includes('--diagnostics') || process.env.PACKLAB_DIAGNOSTICS === '1',
+    splashHoldMs: Number(process.env.PACKLAB_SPLASH_HOLD_MS || 0),
   },
   i18n: {
     supportedLanguages: SUPPORTED_LANGUAGES,
