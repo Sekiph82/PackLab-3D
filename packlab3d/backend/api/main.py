@@ -18,6 +18,7 @@ from starlette.background import BackgroundTask
 
 from packlab3d.backend.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_message
 from packlab3d.backend.i18n import set_language as i18n_set_language
+from packlab3d.backend.multiview.service import MultiViewProjectService
 from packlab3d.core.utils.errors import ModelNotAvailableError
 
 logger = logging.getLogger("packlab3d.api")
@@ -25,6 +26,7 @@ IMPORT_STARTED_AT = time.perf_counter()
 _CAPABILITY_CACHE: Optional[dict] = None
 
 app = FastAPI(title="PackLab 3D API", version="0.1.0")
+multiview_service = MultiViewProjectService()
 
 def _configure_logging() -> None:
     log_dir = os.environ.get("PACKLAB_LOG_DIR")
@@ -55,6 +57,28 @@ class LangOnlyRequest(BaseModel):
 class StatusResponse(BaseModel):
     status: str
     message: str
+
+
+class CreateProjectRequest(BaseModel):
+    projectName: Optional[str] = ""
+    packageType: Optional[str] = "bottle"
+
+
+class UpdatePhotoRequest(BaseModel):
+    photoId: str
+    viewType: Optional[str] = None
+    included: Optional[bool] = None
+    order: Optional[int] = None
+
+
+class UpdatePhotosRequest(BaseModel):
+    photos: list[UpdatePhotoRequest]
+
+
+class ReconstructionRequest(BaseModel):
+    measurements: dict = {}
+    packageType: Optional[str] = "bottle"
+    reconstructionMode: Optional[str] = "auto"
 
 
 def _resolve_language(language: Optional[str]) -> str:
@@ -311,6 +335,141 @@ def set_language(payload: LanguageRequest):
 @app.post("/process-image", response_model=StatusResponse)
 async def process_image(file: UploadFile = File(...), language: Optional[str] = Form(None)):
     _not_implemented(_resolve_language(language))
+
+
+@app.post("/projects")
+def create_project(payload: CreateProjectRequest):
+    return multiview_service.create_project(
+        project_name=payload.projectName or "",
+        package_type=payload.packageType or "bottle",
+    )
+
+
+@app.get("/projects/{project_id}")
+def get_project(project_id: str):
+    try:
+        return multiview_service.project_report(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.post("/projects/{project_id}/photos")
+async def add_project_photos(
+    project_id: str,
+    photos: list[UploadFile] = File(...),
+    view_type: Optional[list[str]] = Form(None),
+):
+    try:
+        return multiview_service.add_photos(project_id, photos, view_types=view_type)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/projects/{project_id}/photos")
+def list_project_photos(project_id: str):
+    try:
+        return {"photos": multiview_service.list_photos(project_id)}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.patch("/projects/{project_id}/photos")
+def update_project_photos(project_id: str, payload: UpdatePhotosRequest):
+    try:
+        return multiview_service.update_photos(project_id, [item.model_dump(exclude_none=True) for item in payload.photos])
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/projects/{project_id}/photos/{photo_id}")
+def delete_project_photo(project_id: str, photo_id: str):
+    try:
+        return multiview_service.delete_photo(project_id, photo_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.post("/projects/{project_id}/analyze-photos")
+def analyze_project_photos(project_id: str):
+    try:
+        return multiview_service.start_job(project_id, "analyze_photos")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.post("/projects/{project_id}/segment-photos")
+def segment_project_photos(project_id: str):
+    try:
+        return multiview_service.start_job(project_id, "segment_photos")
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.post("/projects/{project_id}/reconstruct")
+def reconstruct_project(project_id: str, payload: ReconstructionRequest):
+    try:
+        return multiview_service.start_job(project_id, "reconstruct", payload.model_dump())
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str):
+    try:
+        return multiview_service.get_job(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+
+@app.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str):
+    try:
+        return multiview_service.cancel_job(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+
+@app.get("/projects/{project_id}/result")
+def get_project_result(project_id: str):
+    try:
+        return multiview_service.project_result(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.get("/projects/{project_id}/report")
+def get_project_report(project_id: str):
+    try:
+        return multiview_service.project_report(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.get("/projects/{project_id}/assets/{asset_name}")
+def get_project_asset(project_id: str, asset_name: str):
+    try:
+        result = multiview_service.project_result(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    assets = result.get("assets") or {}
+    asset_path = assets.get(asset_name)
+    if not asset_path or not Path(asset_path).exists():
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    media_type = "application/octet-stream"
+    filename = Path(asset_path).name
+    if asset_name == "finalMesh":
+        media_type = "model/gltf-binary"
+    elif asset_name == "drawingPackage":
+        media_type = "application/zip"
+    elif asset_name == "report":
+        media_type = "application/json"
+    return FileResponse(asset_path, media_type=media_type, filename=filename)
 
 
 @app.post("/generate-mesh")

@@ -8,6 +8,7 @@ const projectRoot = path.resolve(frontendRoot, '..', '..');
 const releaseRoot = path.join(projectRoot, 'release');
 const exePath = path.join(releaseRoot, 'PackLab3D.exe');
 const shortcutPath = path.join(process.env.USERPROFILE || '', 'Desktop', 'PackLab 3D.lnk');
+const claudeLogDir = path.join(projectRoot, 'logs', 'claude');
 const basePort = Number(process.env.PACKLAB_REMOTE_DEBUGGING_PORT || 9331);
 const scenarios = (process.env.PACKLAB_SMOKE_SCENARIOS || 'normal,degraded')
   .split(',')
@@ -92,6 +93,19 @@ async function closeApp(page, browser, child) {
   }
 }
 
+function createSmokePngFiles(count) {
+  fs.mkdirSync(claudeLogDir, { recursive: true });
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z8BQDwAFgwJ/l5W1WQAAAABJRU5ErkJggg==',
+    'base64'
+  );
+  return Array.from({ length: count }, (_item, index) => {
+    const filePath = path.join(claudeLogDir, `multi-photo-smoke-${index + 1}.png`);
+    fs.writeFileSync(filePath, png);
+    return filePath;
+  });
+}
+
 async function runScenario(name, index) {
   if (!fs.existsSync(exePath)) throw new Error(`Packaged executable missing: ${exePath}`);
   if (name === 'shortcut' && !fs.existsSync(shortcutPath)) throw new Error(`Shortcut missing: ${shortcutPath}`);
@@ -146,6 +160,46 @@ async function runScenario(name, index) {
       if (!caps.open3d || typeof caps.open3d.available !== 'boolean') throw new Error('Structured capability response missing open3d.available');
       await page.locator('#diagnostics-button').click();
       await page.waitForSelector('#diagnostics-dialog[open]', { timeout: 5000 });
+      await page.keyboard.press('Escape').catch(() => {});
+
+      if (name === 'multiphoto') {
+        const screenshotDir = process.env.PACKLAB_MULTIPHOTO_SCREENSHOT_DIR || '';
+        const tenFiles = createSmokePngFiles(10);
+        await page.setInputFiles('input.multi-photo__input', tenFiles);
+        await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 10, null, { timeout: 15000 });
+        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `multi-photo-upload-${Date.now()}.png`), fullPage: true });
+        const counterText = await page.locator('.multi-photo__counter').textContent();
+        if (!counterText.includes('10 / 10')) throw new Error(`Expected 10-photo counter, got: ${counterText}`);
+        await page.locator('.multi-photo__actions button', { hasText: 'Remove All' }).click();
+        await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 0, null, { timeout: 5000 });
+
+        const fourFiles = createSmokePngFiles(4);
+        await page.setInputFiles('input.multi-photo__input', fourFiles);
+        await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 4, null, { timeout: 15000 });
+        await page.locator('.photo-card select').nth(0).selectOption('front');
+        await page.locator('.photo-card select').nth(1).selectOption('left');
+        await page.locator('.photo-card select').nth(2).selectOption('back');
+        await page.locator('.photo-card select').nth(3).selectOption('right');
+        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `multi-photo-review-${Date.now()}.png`), fullPage: true });
+        await page.locator('.multi-photo__actions button', { hasText: 'Continue to Reconstruction' }).click();
+        try {
+          await page.waitForFunction(
+            () => (document.querySelector('.multi-photo__report')?.textContent || '').includes('parametric-multiview-silhouette-fit'),
+            null,
+            { timeout: 90000 }
+          );
+        } catch (err) {
+          const details = await page.evaluate(() => ({
+            status: document.querySelector('#pipeline-status')?.textContent || '',
+            progress: document.querySelector('.multi-photo__progress')?.textContent || '',
+            report: document.querySelector('.multi-photo__report')?.textContent || '',
+          }));
+          throw new Error(`Multi-photo reconstruction report did not appear: ${JSON.stringify(details)}`);
+        }
+        const reportText = await page.locator('.multi-photo__report').textContent();
+        if (!reportText.includes('Photos used: 4')) throw new Error(`Expected unified 4-photo report, got: ${reportText}`);
+        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `multi-view-result-${Date.now()}.png`), fullPage: true });
+      }
     }
 
     if (errors.some((item) => item.includes('ERR_FILE_NOT_FOUND') || item.includes('GLTFLoader') || item.includes('OrbitControls'))) {

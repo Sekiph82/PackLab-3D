@@ -8,6 +8,7 @@ import { mountLabelStyleSelector } from './components/LabelStyleSelector.js';
 import { mountLabelShapeSelector } from './components/LabelShapeSelector.js';
 import { mountMaterialSelector } from './components/MaterialSelector.js';
 import { mountFileUploader } from './components/FileUploader.js';
+import { mountMultiPhotoUploader } from './components/MultiPhotoUploader.js';
 import { mountCameraCapture } from './components/CameraCapture.js';
 import { mountThreeJsViewer } from './components/ThreeJSViewer.js';
 import { mountExportPanel } from './components/ExportPanel.js';
@@ -112,16 +113,28 @@ async function main() {
     mountLabelStyleSelector(document.getElementById('label-style-selector'), { i18n, store });
     mountLabelShapeSelector(document.getElementById('label-shape-selector'), { i18n, store });
     mountMaterialSelector(document.getElementById('material-selector'), { i18n, store });
+    const statusEl = document.getElementById('pipeline-status');
 
-    const photoUploader = mountFileUploader(document.getElementById('photo-uploader'), {
-      i18n,
-      labelKey: 'form.uploadPhoto',
-      accept: 'image/*',
-      onFile: (file) => store.setState({ photo: file }),
+    window.addEventListener('packlab:viewer-ready', () => {
+      console.info('[startup] Three.js viewer ready');
+      renderStartupStage({ stage: 'Three.js viewer ready', state: 'success', progress: 95 });
     });
+    const viewer = mountThreeJsViewer(document.getElementById('threejs-viewer'), { i18n });
+
+    const photoUploader = api
+      ? mountMultiPhotoUploader(document.getElementById('photo-uploader'), {
+          i18n,
+          store,
+          api,
+          viewer,
+          setStatus: (text) => {
+            statusEl.textContent = text;
+          },
+        })
+      : null;
 
     mountCameraCapture(document.getElementById('camera-capture'), {
-      onCapture: (file) => photoUploader.setFile(file),
+      onCapture: (file) => photoUploader?.addFiles([file]),
     });
 
     mountFileUploader(document.getElementById('logo-uploader'), {
@@ -134,13 +147,6 @@ async function main() {
       },
     });
 
-    window.addEventListener('packlab:viewer-ready', () => {
-      console.info('[startup] Three.js viewer ready');
-      renderStartupStage({ stage: 'Three.js viewer ready', state: 'success', progress: 95 });
-    });
-    const viewer = mountThreeJsViewer(document.getElementById('threejs-viewer'), { i18n });
-
-    const statusEl = document.getElementById('pipeline-status');
     if (api) {
       mountExportPanel(document.getElementById('export-panel'), {
         i18n,

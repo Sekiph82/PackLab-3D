@@ -27,6 +27,88 @@ export function createApiClient(baseUrl) {
   }
 
   return {
+    async createProject({ projectName = '', packageType = 'bottle' } = {}) {
+      const res = await fetch(`${baseUrl}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName, packageType }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async uploadProjectPhotos({ projectId, photos, viewTypes = [] }) {
+      const fd = new FormData();
+      photos.forEach((photo, index) => {
+        fd.append('photos', photo.file, photo.file.name);
+        fd.append('view_type', viewTypes[index] || photo.viewType || 'custom');
+      });
+      const res = await postForm(baseUrl, `/projects/${projectId}/photos`, fd);
+      return res.json();
+    },
+
+    async updateProjectPhotos({ projectId, photos }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/photos`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photos }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async startPhotoAnalysis({ projectId }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/analyze-photos`, { method: 'POST' });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async startPhotoSegmentation({ projectId }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/segment-photos`, { method: 'POST' });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async startReconstruction({ projectId, measurements = {}, packageType = 'bottle', reconstructionMode = 'auto' }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/reconstruct`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ measurements, packageType, reconstructionMode }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async getJob(jobId) {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}`);
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async cancelJob(jobId) {
+      const res = await fetch(`${baseUrl}/jobs/${jobId}/cancel`, { method: 'POST' });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async getProjectResult(projectId) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/result`);
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async getProjectReport(projectId) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/report`);
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async getProjectAsset({ projectId, assetName }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/assets/${assetName}`);
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return { arrayBuffer: await res.arrayBuffer(), headers: res.headers };
+    },
+
     async generateMesh({ file, backend = 'triposr', language = 'en' }) {
       const fd = new FormData();
       fd.append('file', file);
