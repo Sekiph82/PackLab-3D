@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Minimal logo per PackLab3D_BrandIdentity.md: "PL3D monogram, used as small UI icon" -->
+  <rect x="4" y="4" width="56" height="56" rx="8" fill="none" stroke="#FFFFFF" stroke-width="3"/>
+  <text x="32" y="38" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="700" fill="#FFFFFF" text-anchor="middle">PL3D</text>
+</svg>

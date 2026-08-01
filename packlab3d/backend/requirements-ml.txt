@@ -1,0 +1,20 @@
+# Optional heavy dependencies for image_processing/ and mesh_generation/.
+# Not installed by default: multi-GB downloads, GPU strongly recommended.
+# Install manually when you're ready to run real segmentation / single-view mesh generation.
+
+torch>=2.2
+segment-anything @ git+https://github.com/facebookresearch/segment-anything.git
+# Also required: a SAM checkpoint (.pth), set via env var PACKLAB_SAM_CHECKPOINT.
+# Download: https://github.com/facebookresearch/segment-anything#model-checkpoints
+
+# TripoSR is not published on PyPI - clone the repo and pip install its requirements:
+# git clone https://github.com/VAST-AI-Research/TripoSR
+# pip install -r TripoSR/requirements.txt
+# Model weights auto-download from HuggingFace (stabilityai/TripoSR) on first run.
+
+# cairosvg: pip-installable, but its cairocffi backend needs the native libcairo
+# library at runtime (missing on plain Windows). Install the GTK3 runtime, or
+# any distribution that ships libcairo-2.dll, to enable render_svg_to_png_via_cairo()
+# in label_engine/render.py. Not required otherwise - Pillow renders label.png
+# directly and doesn't depend on cairosvg.
+cairosvg>=2.9

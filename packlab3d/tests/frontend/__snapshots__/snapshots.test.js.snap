@@ -1,0 +1,66 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`4-panel app grid markup matches snapshot (from the real index.html) 1`] = `
+"<main class="app-grid">
+      <section class="panel panel--left" aria-label="Measurements">
+        <h2 data-i18n="nav.measurements">Measurements</h2>
+        <div id="measurement-form"></div>
+        <h2><img src="icons/label.svg" alt="" class="icon"> <span data-i18n="label.title">Label Design</span></h2>
+        <div id="label-style-selector"></div>
+        <div id="label-shape-selector"></div>
+        <div id="material-selector"></div>
+      </section>
+
+      <section class="panel panel--center" aria-label="3D Viewer">
+        <div class="viewer-heading"><img src="icons/cube-3d.svg" alt="" class="icon"> <span data-i18n="viewer.title">3D Viewer</span></div>
+        <div id="threejs-viewer" class="viewer"></div>
+      </section>
+
+      <section class="panel panel--right" aria-label="Label Design Options">
+        <h2><img src="icons/upload.svg" alt="" class="icon"> <span data-i18n="form.uploadPhoto">Upload Photo</span></h2>
+        <div id="photo-uploader"></div>
+        <div id="camera-capture"></div>
+        <h2><img src="icons/label.svg" alt="" class="icon"> <span data-i18n="label.content.logo">Logo</span></h2>
+        <div id="logo-uploader"></div>
+        <!-- static, not localized yet (known follow-up) — reused label.title here would collide with the left panel's "Label Design" heading -->
+        <h2><img src="icons/label.svg" alt="" class="icon"> Label Preview</h2>
+        <img id="label-preview" class="label-preview" alt="">
+        <div id="pipeline-status" class="pipeline-status"></div>
+      </section>
+
+      <section class="panel panel--bottom" aria-label="Export">
+        <div id="export-panel"></div>
+      </section>
+    </main>"
+`;
+
+exports[`LabelShapeSelector rendered markup matches snapshot 1`] = `"<div style="font-size: 12px; margin-bottom: 6px;">Shape</div><div class="shape-grid"><button type="button" class="shape-btn">Rectangle</button><button type="button" class="shape-btn">Square</button><button type="button" class="shape-btn">Circle</button><button type="button" class="shape-btn selected">Oval</button><button type="button" class="shape-btn">Wrap-around</button><button type="button" class="shape-btn">Sachet Label</button><button type="button" class="shape-btn">Cap Label</button></div>"`;
+
+exports[`LabelStyleSelector rendered markup matches snapshot 1`] = `"<div style="font-size: 12px; margin-bottom: 6px;">Style</div><div class="swatch-grid"><div class="swatch" role="button" tabindex="0"><span class="swatch-dot" style="background: rgb(0, 87, 255);"></span><span>Minimal Modern</span></div><div class="swatch" role="button" tabindex="0"><span class="swatch-dot" style="background: rgb(201, 168, 106);"></span><span>Premium Gold</span></div><div class="swatch selected" role="button" tabindex="0"><span class="swatch-dot" style="background: rgb(0, 210, 106);"></span><span>Eco Green</span></div><div class="swatch" role="button" tabindex="0"><span class="swatch-dot" style="background: rgb(58, 74, 90);"></span><span>Industrial Tech</span></div><div class="swatch" role="button" tabindex="0"><span class="swatch-dot" style="background: rgb(255, 51, 102);"></span><span>Bold Colorful</span></div></div>"`;
+
+exports[`LanguageSwitcher rendered markup matches snapshot 1`] = `"<button type="button" class="active" data-lang="en">EN</button><button type="button" class="" data-lang="tr">TR</button><button type="button" class="" data-lang="sw">SW</button>"`;
+
+exports[`app header (brand + language switcher mount point) matches snapshot 1`] = `
+"<header class="app-header">
+      <div class="app-header__brand">
+        <img id="header-logo" src="" alt="" class="app-header__logo">
+        <span data-i18n="splash.appName">PackLab 3D</span>
+      </div>
+      <div class="app-header__right">
+        <img src="icons/language.svg" alt="" class="icon">
+        <div id="language-switcher" class="language-switcher"></div>
+      </div>
+    </header>"
+`;
+
+exports[`splash screen markup matches snapshot (from the real index.html) 1`] = `
+"<div id="splash">
+    <canvas id="splash-canvas"></canvas>
+    <div class="splash-title">PackLab 3D</div>
+    <div class="splash-slogan" data-i18n="splash.slogan">Precision Packaging Design.</div>
+    <div id="loading-container">
+      <div id="loading-text">Loading… 0%</div>
+      <div id="loading-bar"><div id="loading-progress"></div></div>
+    </div>
+  </div>"
+`;

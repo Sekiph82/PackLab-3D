@@ -1,0 +1,33 @@
+# electron-builder config for PackLab 3D
+# Requires: packlab3d/frontend/electron/main.js (Stage 8) to exist before a real build succeeds.
+
+appId: com.packlab3d.app
+productName: PackLab 3D
+copyright: PackLab 3D
+
+directories:
+  output: ../../release
+  buildResources: build
+
+files:
+  - electron/**/*
+  - ui/**/*
+  - i18n/**/*
+  - package.json
+
+# PyInstaller output (Stage 2) gets copied here by build_backend.bat
+# so the packaged app can spawn the backend as a child process.
+extraResources:
+  - from: resources/backend
+    to: backend
+    filter:
+      - "**/*"
+
+win:
+  target: dir
+  icon: build/icon.png
+  # NOTE: electron-builder auto-converts a single square PNG (>=256x256) to .ico.
+  # Source: "PackLab 3D logo pack/512x512 px.png" — copy it to build/icon.png before building.
+  # dir (not nsis, not portable): unpacked build, no installer, no self-extraction
+  # to %TEMP% on launch. build_frontend.bat flattens the resulting win-unpacked/
+  # directory straight into release/ and renames the exe to PackLab3D.exe.

@@ -1,0 +1,30 @@
+{
+  "api": {
+    "imageProcessed": "Görüntü başarıyla işlendi.",
+    "meshGenerated": "3D model başarıyla oluşturuldu.",
+    "meshScaled": "Model belirtilen ölçülere göre ölçeklendirildi.",
+    "wallThicknessApplied": "Duvar kalınlığı uygulandı.",
+    "drawingGenerated": "2D teknik çizim oluşturuldu.",
+    "labelGenerated": "Etiket başarıyla oluşturuldu.",
+    "labelAppliedTo3D": "Etiket 3D modele uygulandı.",
+    "exportComplete": "Dışa aktarma başarıyla tamamlandı.",
+    "languageSet": "Dil başarıyla güncellendi.",
+    "meshCleaned": "Model temizlendi ve normalize edildi.",
+    "labelGenerated": "Etiket başarıyla oluşturuldu."
+  },
+  "errors": {
+    "invalidImage": "Yüklenen dosya geçerli bir görüntü değil.",
+    "invalidDimensions": "Belirtilen ölçüler geçersiz.",
+    "unsupportedLanguage": "İstenen dil desteklenmiyor.",
+    "meshGenerationFailed": "3D model oluşturma başarısız oldu.",
+    "drawingGenerationFailed": "Teknik çizim oluşturma başarısız oldu.",
+    "labelGenerationFailed": "Etiket oluşturma başarısız oldu.",
+    "exportFailed": "Dışa aktarma başarısız oldu.",
+    "notImplemented": "Bu özellik henüz uygulanmadı.",
+    "modelUnavailable": "Gerekli yapay zeka model bağımlılığı yüklü değil.",
+    "invalidMesh": "Yüklenen model dosyası okunamadı.",
+    "missingTargetDimension": "En az bir hedef ölçü (genişlik, yükseklik, derinlik veya çap) gereklidir.",
+    "invalidPackagingType": "Bilinmeyen ambalaj türü.",
+    "invalidMaterial": "Bilinmeyen malzeme."
+  }
+}

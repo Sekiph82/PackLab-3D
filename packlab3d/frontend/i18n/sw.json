@@ -1,0 +1,112 @@
+{
+  "splash": {
+    "appName": "PackLab 3D",
+    "slogan": "Ubunifu wa Ufungaji wa Usahihi"
+  },
+  "language": {
+    "selectLabel": "Lugha",
+    "en": "English",
+    "tr": "Türkçe",
+    "sw": "Kiswahili"
+  },
+  "nav": {
+    "measurements": "Vipimo",
+    "viewer3d": "Kitazamaji cha 3D",
+    "drawing2d": "Mchoro wa 2D",
+    "labelDesign": "Ubunifu wa Lebo",
+    "export": "Hamisha"
+  },
+  "form": {
+    "title": "Ingizo la Vipimo",
+    "uploadPhoto": "Pakia Picha",
+    "packagingType": "Aina ya Ufungaji",
+    "width": "Upana",
+    "height": "Urefu",
+    "depth": "Kina",
+    "diameter": "Kipenyo",
+    "volume": "Ujazo",
+    "weight": "Uzito",
+    "unit": "Kipimo",
+    "material": "Nyenzo",
+    "generate": "Tengeneza",
+    "packagingTypes": {
+      "bottle": "Chupa",
+      "box": "Sanduku",
+      "sachet": "Kifuko",
+      "jerrycan": "Jerikeni"
+    },
+    "materials": {
+      "PET": "PET",
+      "PP": "PP",
+      "HDPE": "HDPE",
+      "LDPE": "LDPE",
+      "PE": "PE"
+    }
+  },
+  "viewer": {
+    "title": "Kitazamaji cha 3D",
+    "loading": "Inapakia mfano wa 3D...",
+    "empty": "Bado hakuna mfano ulioundwa"
+  },
+  "drawing": {
+    "title": "Mchoro wa Kiufundi wa 2D",
+    "frontView": "Mtazamo wa Mbele",
+    "sideView": "Mtazamo wa Pembeni",
+    "topView": "Mtazamo wa Juu",
+    "exportPng": "Hamisha kama PNG",
+    "exportSvg": "Hamisha kama SVG"
+  },
+  "label": {
+    "title": "Ubunifu wa Lebo",
+    "shape": "Umbo",
+    "style": "Mtindo",
+    "shapes": {
+      "rectangle": "Mstatili",
+      "square": "Mraba",
+      "circle": "Duara",
+      "oval": "Mviringo",
+      "wrapAround": "Kuzunguka",
+      "sachetLabel": "Lebo ya Kifuko",
+      "capLabel": "Lebo ya Kifuniko"
+    },
+    "styles": {
+      "minimalModern": "Minimal Modern",
+      "premiumGold": "Premium Gold",
+      "ecoGreen": "Eco Green",
+      "industrialTech": "Industrial Tech",
+      "boldColorful": "Bold Colorful"
+    },
+    "content": {
+      "brandName": "Jina la Chapa",
+      "productName": "Jina la Bidhaa",
+      "ingredients": "Viungo",
+      "warnings": "Maonyo",
+      "barcode": "Barcode",
+      "qrCode": "Msimbo wa QR",
+      "logo": "Nembo"
+    },
+    "symbols": {
+      "recycle": "Inaweza Kusindikwa Upya",
+      "ce": "Alama ya CE",
+      "foodSafe": "Salama kwa Chakula",
+      "hazard": "Hatari"
+    }
+  },
+  "export": {
+    "title": "Hamisha",
+    "exportButton": "Hamisha",
+    "success": "Uhamishaji umekamilika kwa mafanikio.",
+    "failed": "Uhamishaji umeshindwa. Tafadhali jaribu tena."
+  },
+  "common": {
+    "ok": "Sawa",
+    "cancel": "Ghairi",
+    "save": "Hifadhi",
+    "next": "Endelea",
+    "back": "Rudi",
+    "loading": "Inapakia...",
+    "error": "Hitilafu",
+    "requiredField": "Sehemu hii inahitajika.",
+    "invalidNumber": "Tafadhali weka nambari sahihi."
+  }
+}

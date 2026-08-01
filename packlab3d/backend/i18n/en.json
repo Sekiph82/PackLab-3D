@@ -1,0 +1,30 @@
+{
+  "api": {
+    "imageProcessed": "Image processed successfully.",
+    "meshGenerated": "3D mesh generated successfully.",
+    "meshScaled": "Mesh scaled to specified dimensions.",
+    "wallThicknessApplied": "Wall thickness applied.",
+    "drawingGenerated": "2D technical drawing generated.",
+    "labelGenerated": "Label generated successfully.",
+    "labelAppliedTo3D": "Label applied to 3D model.",
+    "exportComplete": "Export completed successfully.",
+    "languageSet": "Language updated successfully.",
+    "meshCleaned": "Mesh cleaned and normalized successfully.",
+    "labelGenerated": "Label generated successfully."
+  },
+  "errors": {
+    "invalidImage": "Uploaded file is not a valid image.",
+    "invalidDimensions": "Provided dimensions are invalid.",
+    "unsupportedLanguage": "Requested language is not supported.",
+    "meshGenerationFailed": "Mesh generation failed.",
+    "drawingGenerationFailed": "Technical drawing generation failed.",
+    "labelGenerationFailed": "Label generation failed.",
+    "exportFailed": "Export failed.",
+    "notImplemented": "This feature is not implemented yet.",
+    "modelUnavailable": "Required AI model dependency is not installed.",
+    "invalidMesh": "Uploaded mesh file could not be read.",
+    "missingTargetDimension": "At least one target dimension (width, height, depth, or diameter) is required.",
+    "invalidPackagingType": "Unknown packaging type.",
+    "invalidMaterial": "Unknown material."
+  }
+}

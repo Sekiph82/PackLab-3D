@@ -1,0 +1,112 @@
+{
+  "splash": {
+    "appName": "PackLab 3D",
+    "slogan": "Hassas Ambalaj Tasarımı"
+  },
+  "language": {
+    "selectLabel": "Dil",
+    "en": "English",
+    "tr": "Türkçe",
+    "sw": "Kiswahili"
+  },
+  "nav": {
+    "measurements": "Ölçümler",
+    "viewer3d": "3D Görüntüleyici",
+    "drawing2d": "2D Çizim",
+    "labelDesign": "Etiket Tasarımı",
+    "export": "Dışa Aktar"
+  },
+  "form": {
+    "title": "Ölçüm Girişi",
+    "uploadPhoto": "Fotoğraf Yükle",
+    "packagingType": "Ambalaj Türü",
+    "width": "Genişlik",
+    "height": "Yükseklik",
+    "depth": "Derinlik",
+    "diameter": "Çap",
+    "volume": "Hacim",
+    "weight": "Ağırlık",
+    "unit": "Birim",
+    "material": "Malzeme",
+    "generate": "Oluştur",
+    "packagingTypes": {
+      "bottle": "Şişe",
+      "box": "Kutu",
+      "sachet": "Saşe",
+      "jerrycan": "Bidon"
+    },
+    "materials": {
+      "PET": "PET",
+      "PP": "PP",
+      "HDPE": "HDPE",
+      "LDPE": "LDPE",
+      "PE": "PE"
+    }
+  },
+  "viewer": {
+    "title": "3D Görüntüleyici",
+    "loading": "3D model yükleniyor...",
+    "empty": "Henüz model oluşturulmadı"
+  },
+  "drawing": {
+    "title": "2D Teknik Çizim",
+    "frontView": "Ön Görünüm",
+    "sideView": "Yan Görünüm",
+    "topView": "Üst Görünüm",
+    "exportPng": "PNG Olarak Dışa Aktar",
+    "exportSvg": "SVG Olarak Dışa Aktar"
+  },
+  "label": {
+    "title": "Etiket Tasarımı",
+    "shape": "Şekil",
+    "style": "Stil",
+    "shapes": {
+      "rectangle": "Dikdörtgen",
+      "square": "Kare",
+      "circle": "Daire",
+      "oval": "Oval",
+      "wrapAround": "Sarma",
+      "sachetLabel": "Saşe Etiketi",
+      "capLabel": "Kapak Etiketi"
+    },
+    "styles": {
+      "minimalModern": "Minimal Modern",
+      "premiumGold": "Premium Gold",
+      "ecoGreen": "Eco Green",
+      "industrialTech": "Industrial Tech",
+      "boldColorful": "Bold Colorful"
+    },
+    "content": {
+      "brandName": "Marka Adı",
+      "productName": "Ürün Adı",
+      "ingredients": "İçindekiler",
+      "warnings": "Uyarılar",
+      "barcode": "Barkod",
+      "qrCode": "QR Kod",
+      "logo": "Logo"
+    },
+    "symbols": {
+      "recycle": "Geri Dönüştürülebilir",
+      "ce": "CE İşareti",
+      "foodSafe": "Gıdaya Uygun",
+      "hazard": "Tehlike"
+    }
+  },
+  "export": {
+    "title": "Dışa Aktar",
+    "exportButton": "Dışa Aktar",
+    "success": "Dışa aktarma başarıyla tamamlandı.",
+    "failed": "Dışa aktarma başarısız oldu. Lütfen tekrar deneyin."
+  },
+  "common": {
+    "ok": "Tamam",
+    "cancel": "İptal",
+    "save": "Kaydet",
+    "next": "İleri",
+    "back": "Geri",
+    "loading": "Yükleniyor...",
+    "error": "Hata",
+    "requiredField": "Bu alan zorunludur.",
+    "invalidNumber": "Lütfen geçerli bir sayı girin."
+  }
+}

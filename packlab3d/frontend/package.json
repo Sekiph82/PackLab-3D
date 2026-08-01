@@ -1,0 +1,55 @@
+{
+  "name": "packlab3d",
+  "version": "0.1.0",
+  "description": "PackLab 3D - Precision Packaging Design.",
+  "main": "electron/main.js",
+  "author": "PackLab 3D",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win",
+    "postinstall": "electron-builder install-app-deps",
+    "test": "jest",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@babel/core": "^8.0.1",
+    "@babel/preset-env": "^8.0.2",
+    "@playwright/test": "^1.62.1",
+    "babel-jest": "^30.4.1",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1"
+  },
+  "dependencies": {
+    "three": "^0.166.1"
+  },
+  "build": {
+    "appId": "com.packlab3d.app",
+    "productName": "PackLab 3D",
+    "directories": {
+      "output": "../../release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "ui/**/*",
+      "i18n/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "dir",
+      "icon": "build/icon.png"
+    }
+  }
+}

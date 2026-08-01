@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 127.0.0.1:* (not a fixed :8000) because PACKLAB_BACKEND_PORT can override the port (see main.js — used by the E2E suite to dodge a port-8000 conflict).
+       script-src needs 'unsafe-inline' for the inline importmap below — this Electron's Chromium doesn't support external `<script type="importmap" src="...">`
+       (confirmed via E2E run: "External import maps are not yet supported."). Acceptable here since 100% of content is self-authored, loaded via file://, never remote. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' http://127.0.0.1:* data: blob: mediastream:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
+  <title>PackLab 3D</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="splash">
+    <canvas id="splash-canvas"></canvas>
+    <div class="splash-title">PackLab 3D</div>
+    <div class="splash-slogan" data-i18n="splash.slogan">Precision Packaging Design.</div>
+    <div id="loading-container">
+      <div id="loading-text">Loading… 0%</div>
+      <div id="loading-bar"><div id="loading-progress"></div></div>
+    </div>
+  </div>
+
+  <div id="app" class="app app--hidden">
+    <header class="app-header">
+      <div class="app-header__brand">
+        <img id="header-logo" src="" alt="" class="app-header__logo" />
+        <span data-i18n="splash.appName">PackLab 3D</span>
+      </div>
+      <div class="app-header__right">
+        <img src="icons/language.svg" alt="" class="icon" />
+        <div id="language-switcher" class="language-switcher"></div>
+      </div>
+    </header>
+
+    <main class="app-grid">
+      <section class="panel panel--left" aria-label="Measurements">
+        <h2 data-i18n="nav.measurements">Measurements</h2>
+        <div id="measurement-form"></div>
+        <h2><img src="icons/label.svg" alt="" class="icon" /> <span data-i18n="label.title">Label Design</span></h2>
+        <div id="label-style-selector"></div>
+        <div id="label-shape-selector"></div>
+        <div id="material-selector"></div>
+      </section>
+
+      <section class="panel panel--center" aria-label="3D Viewer">
+        <div class="viewer-heading"><img src="icons/cube-3d.svg" alt="" class="icon" /> <span data-i18n="viewer.title">3D Viewer</span></div>
+        <div id="threejs-viewer" class="viewer"></div>
+      </section>
+
+      <section class="panel panel--right" aria-label="Label Design Options">
+        <h2><img src="icons/upload.svg" alt="" class="icon" /> <span data-i18n="form.uploadPhoto">Upload Photo</span></h2>
+        <div id="photo-uploader"></div>
+        <div id="camera-capture"></div>
+        <h2><img src="icons/label.svg" alt="" class="icon" /> <span data-i18n="label.content.logo">Logo</span></h2>
+        <div id="logo-uploader"></div>
+        <!-- static, not localized yet (known follow-up) — reused label.title here would collide with the left panel's "Label Design" heading -->
+        <h2><img src="icons/label.svg" alt="" class="icon" /> Label Preview</h2>
+        <img id="label-preview" class="label-preview" alt="" />
+        <div id="pipeline-status" class="pipeline-status"></div>
+      </section>
+
+      <section class="panel panel--bottom" aria-label="Export">
+        <div id="export-panel"></div>
+      </section>
+    </main>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "../../node_modules/three/build/three.module.js",
+      "three/addons/": "../../node_modules/three/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

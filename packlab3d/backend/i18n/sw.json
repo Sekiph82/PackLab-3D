@@ -1,0 +1,30 @@
+{
+  "api": {
+    "imageProcessed": "Picha imechakatwa kwa mafanikio.",
+    "meshGenerated": "Mfano wa 3D umeundwa kwa mafanikio.",
+    "meshScaled": "Mfano umepimwa kulingana na vipimo vilivyotolewa.",
+    "wallThicknessApplied": "Unene wa ukuta umewekwa.",
+    "drawingGenerated": "Mchoro wa kiufundi wa 2D umeundwa.",
+    "labelGenerated": "Lebo imeundwa kwa mafanikio.",
+    "labelAppliedTo3D": "Lebo imewekwa kwenye mfano wa 3D.",
+    "exportComplete": "Uhamishaji umekamilika kwa mafanikio.",
+    "languageSet": "Lugha imesasishwa kwa mafanikio.",
+    "meshCleaned": "Mfano umesafishwa na kusawazishwa.",
+    "labelGenerated": "Lebo imeundwa kwa mafanikio."
+  },
+  "errors": {
+    "invalidImage": "Faili lililopakiwa si picha halali.",
+    "invalidDimensions": "Vipimo vilivyotolewa si sahihi.",
+    "unsupportedLanguage": "Lugha iliyoombwa haitumiki.",
+    "meshGenerationFailed": "Uundaji wa mfano wa 3D umeshindwa.",
+    "drawingGenerationFailed": "Uundaji wa mchoro wa kiufundi umeshindwa.",
+    "labelGenerationFailed": "Uundaji wa lebo umeshindwa.",
+    "exportFailed": "Uhamishaji umeshindwa.",
+    "notImplemented": "Kipengele hiki bado hakijatekelezwa.",
+    "modelUnavailable": "Utegemezi wa mfano wa AI unaohitajika haujasakinishwa.",
+    "invalidMesh": "Faili la mfano lililopakiwa halikusomeka.",
+    "missingTargetDimension": "Angalau kipimo kimoja kinachohitajika (upana, urefu, kina, au kipenyo) kinahitajika.",
+    "invalidPackagingType": "Aina ya ufungaji isiyojulikana.",
+    "invalidMaterial": "Nyenzo isiyojulikana."
+  }
+}

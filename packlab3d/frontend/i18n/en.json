@@ -1,0 +1,112 @@
+{
+  "splash": {
+    "appName": "PackLab 3D",
+    "slogan": "Precision Packaging Design."
+  },
+  "language": {
+    "selectLabel": "Language",
+    "en": "English",
+    "tr": "Türkçe",
+    "sw": "Kiswahili"
+  },
+  "nav": {
+    "measurements": "Measurements",
+    "viewer3d": "3D Viewer",
+    "drawing2d": "2D Drawing",
+    "labelDesign": "Label Design",
+    "export": "Export"
+  },
+  "form": {
+    "title": "Measurement Input",
+    "uploadPhoto": "Upload Photo",
+    "packagingType": "Packaging Type",
+    "width": "Width",
+    "height": "Height",
+    "depth": "Depth",
+    "diameter": "Diameter",
+    "volume": "Volume",
+    "weight": "Weight",
+    "unit": "Unit",
+    "material": "Material",
+    "generate": "Generate",
+    "packagingTypes": {
+      "bottle": "Bottle",
+      "box": "Box",
+      "sachet": "Sachet",
+      "jerrycan": "Jerrycan"
+    },
+    "materials": {
+      "PET": "PET",
+      "PP": "PP",
+      "HDPE": "HDPE",
+      "LDPE": "LDPE",
+      "PE": "PE"
+    }
+  },
+  "viewer": {
+    "title": "3D Viewer",
+    "loading": "Loading 3D model...",
+    "empty": "No model generated yet"
+  },
+  "drawing": {
+    "title": "2D Technical Drawing",
+    "frontView": "Front View",
+    "sideView": "Side View",
+    "topView": "Top View",
+    "exportPng": "Export PNG",
+    "exportSvg": "Export SVG"
+  },
+  "label": {
+    "title": "Label Design",
+    "shape": "Shape",
+    "style": "Style",
+    "shapes": {
+      "rectangle": "Rectangle",
+      "square": "Square",
+      "circle": "Circle",
+      "oval": "Oval",
+      "wrapAround": "Wrap-around",
+      "sachetLabel": "Sachet Label",
+      "capLabel": "Cap Label"
+    },
+    "styles": {
+      "minimalModern": "Minimal Modern",
+      "premiumGold": "Premium Gold",
+      "ecoGreen": "Eco Green",
+      "industrialTech": "Industrial Tech",
+      "boldColorful": "Bold Colorful"
+    },
+    "content": {
+      "brandName": "Brand Name",
+      "productName": "Product Name",
+      "ingredients": "Ingredients",
+      "warnings": "Warnings",
+      "barcode": "Barcode",
+      "qrCode": "QR Code",
+      "logo": "Logo"
+    },
+    "symbols": {
+      "recycle": "Recyclable",
+      "ce": "CE Mark",
+      "foodSafe": "Food Safe",
+      "hazard": "Hazard"
+    }
+  },
+  "export": {
+    "title": "Export",
+    "exportButton": "Export",
+    "success": "Export completed successfully.",
+    "failed": "Export failed. Please try again."
+  },
+  "common": {
+    "ok": "OK",
+    "cancel": "Cancel",
+    "save": "Save",
+    "next": "Next",
+    "back": "Back",
+    "loading": "Loading...",
+    "error": "Error",
+    "requiredField": "This field is required.",
+    "invalidNumber": "Please enter a valid number."
+  }
+}
