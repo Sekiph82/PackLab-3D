@@ -65,3 +65,43 @@ test('export panel tells users to create a unified design before mesh operations
   expect(api.generateMesh).not.toHaveBeenCalled();
 });
 
+test('apply label to 3d passes mapping controls and loads the textured model', async () => {
+  document.body.innerHTML = '<div id="root"></div>';
+  const api = fakeApi();
+  const viewer = { loadGlbArrayBuffer: jest.fn(async () => {}) };
+  const setStatus = jest.fn();
+  mountExportPanel(document.getElementById('root'), {
+    i18n: fakeI18n(),
+    store: fakeStore({
+      measurement: { packagingType: 'bottle' },
+      pipeline: {
+        cleaned: new ArrayBuffer(16),
+        labelPngBytes: new Uint8Array([137, 80, 78, 71]).buffer,
+      },
+    }),
+    api,
+    viewer,
+    setStatus,
+  });
+
+  const mode = document.querySelector('.label-mapping select');
+  mode.value = 'cylindrical';
+  mode.dispatchEvent(new Event('change'));
+  const textureResolution = [...document.querySelectorAll('.label-mapping input[type="number"]')]
+    .find((input) => input.max === '4096');
+  textureResolution.value = '2048';
+  textureResolution.dispatchEvent(new Event('input'));
+
+  [...document.querySelectorAll('button')].find((button) => button.textContent === 'Apply Label to 3D').click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  expect(api.applyLabelTo3d).toHaveBeenCalledWith(expect.objectContaining({
+    packagingType: 'bottle',
+    uvMode: 'cylindrical',
+    textureResolution: 2048,
+  }));
+  expect(viewer.loadGlbArrayBuffer).toHaveBeenCalledTimes(1);
+  expect(setStatus).toHaveBeenCalledWith('Validating mesh...');
+  expect(setStatus).toHaveBeenCalledWith('Frontend received response.');
+  expect(setStatus).toHaveBeenCalledWith('Viewer load completed.');
+});

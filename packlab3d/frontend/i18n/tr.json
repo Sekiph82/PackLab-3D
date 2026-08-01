@@ -98,6 +98,86 @@
     "success": "Dışa aktarma başarıyla tamamlandı.",
     "failed": "Dışa aktarma başarısız oldu. Lütfen tekrar deneyin."
   },
+  "photos": {
+    "add": "Fotograf Ekle",
+    "openWorkspace": "Fotograf Calisma Alanini Ac",
+    "removeAll": "Tumunu Kaldir",
+    "autoAssignViews": "Gorunumleri Otomatik Ata",
+    "reviewQuality": "Fotograf Kalitesini Incele",
+    "rotateLeft": "Sola Dondur",
+    "rotateRight": "Saga Dondur",
+    "counterLabel": "Fotograflar",
+    "include": "Dahil Et",
+    "quality": "Kalite",
+    "mask": "Maske",
+    "qualityAnalysis": "Fotograf kalite analizi",
+    "segmentation": "Fotograf segmentasyonu",
+    "status": {
+      "uploading": "Fotograf seti yukleniyor...",
+      "qualityComplete": "Fotograf kalite analizi tamamlandi."
+    },
+    "errors": {
+      "uploadAtLeastOne": "En az bir fotograf yukleyin.",
+      "includeAtLeastOne": "En az bir fotografi dahil edin."
+    }
+  },
+  "reconstruction": {
+    "createUnifiedDesign": "Birlesik Tasarim Olustur",
+    "mode": "Rekonstruksiyon Modu",
+    "unified": "Birlesik rekonstruksiyon",
+    "complete": "Birlesik rekonstruksiyon tamamlandi.",
+    "fallbackSuccess": "Birlesik tasarim parametrik yedek yontemle olusturuldu.",
+    "providerUsed": "Kullanilan saglayici",
+    "aiModelInstalled": "AI modeli kurulu",
+    "fallbackUsed": "Yedek yontem kullanildi",
+    "method": "Yontem",
+    "photosUsed": "Kullanilan fotograflar",
+    "photosExcluded": "Haric tutulan fotograflar",
+    "confidence": "Guven",
+    "aiReconstruction": "AI Rekonstruksiyon",
+    "modelWeights": "Model agirliklari",
+    "standardUnifiedDesign": "Standart birlesik tasarim",
+    "parametricFallback": "Cok gorunumlu parametrik yedek",
+    "modes": {
+      "auto": "Otomatik",
+      "multiViewParametric": "Cok Gorunumlu Parametrik",
+      "basicParametric": "Temel Parametrik",
+      "experimentalAiReference": "Deneysel AI Referans Mesh"
+    },
+    "errors": {
+      "createUnifiedFirst": "Once fotograf setinden birlesik tasarim olusturun."
+    }
+  },
+  "labelMapping": {
+    "title": "Etiket Esleme",
+    "applyTo3d": "Etiketi 3D'ye Uygula",
+    "mappingMode": "Esleme Modu",
+    "horizontalPosition": "Yatay Konum (%)",
+    "verticalPosition": "Dikey Konum (%)",
+    "scale": "Olcek (%)",
+    "rotation": "Dondurme",
+    "seamPosition": "Dikis Konumu (%)",
+    "textureResolution": "Onizleme Kalitesi",
+    "flipHorizontal": "Yatay Cevir",
+    "flipVertical": "Dikey Cevir",
+    "modes": {
+      "cylindrical": "Silindirik",
+      "box": "Kutu",
+      "bottleBlend": "Sise Karisim"
+    },
+    "progress": {
+      "validatingMesh": "Mesh dogrulaniyor...",
+      "responseReceived": "On yuz yaniti aldi.",
+      "viewerLoadStarted": "Goruntuleyici yukleniyor...",
+      "viewerLoadCompleted": "Goruntuleyici yuklemesi tamamlandi."
+    },
+    "errors": {
+      "requireDesignAndLabel": "Once birlesik tasarim olusturun ve etiket uretin.",
+      "viewerTimeout": "Dokulu model olusturuldu, ancak goruntuleyici yuklemesi cok uzun surdu.",
+      "pickLabelFirst": "Once etiket stili ve sekli secin.",
+      "timeout": "Etiket uygulama cok uzun surdu ve iptal edildi."
+    }
+  },
   "common": {
     "ok": "Tamam",
     "cancel": "İptal",
@@ -106,6 +186,18 @@
     "back": "Geri",
     "loading": "Yükleniyor...",
     "error": "Hata",
+    "remove": "Kaldir",
+    "up": "Yukari",
+    "down": "Asagi",
+    "yes": "Evet",
+    "no": "Hayir",
+    "installed": "Kurulu",
+    "notInstalled": "Kurulu degil",
+    "available": "Kullanilabilir",
+    "unavailable": "Kullanilamaz",
+    "retry": "Tekrar Dene",
+    "timedOut": "Zaman Asimi",
+    "validationFailed": "Dogrulama Basarisiz",
     "requiredField": "Bu alan zorunludur.",
     "invalidNumber": "Lütfen geçerli bir sayı girin."
   }

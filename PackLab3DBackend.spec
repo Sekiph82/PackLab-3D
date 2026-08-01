@@ -7,7 +7,10 @@ a = Analysis(
     [str(ROOT / "packlab3d" / "backend" / "api" / "main.py")],
     pathex=[str(ROOT)],
     binaries=[],
-    datas=[(str(ROOT / "packlab3d" / "backend" / "i18n"), "packlab3d/backend/i18n")],
+    datas=[
+        (str(ROOT / "packlab3d" / "backend" / "i18n"), "packlab3d/backend/i18n"),
+        (str(ROOT / "packlab3d" / "frontend" / "i18n"), "packlab3d/frontend/i18n"),
+    ],
     hiddenimports=["pygltflib"],
     hookspath=[],
     hooksconfig={},

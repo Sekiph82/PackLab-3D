@@ -649,6 +649,50 @@ html, body {
   gap: 4px;
 }
 
+.label-mapping {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  border: 1px solid #dde3ea;
+  border-radius: 6px;
+  background: #fbfdff;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.label-mapping__title {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  font-weight: 700;
+  color: #16324f;
+}
+
+.label-mapping__field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  font-size: 11px;
+  color: #3a4a5a;
+}
+
+.label-mapping__field input,
+.label-mapping__field select {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #d3dbe5;
+  border-radius: 6px;
+  padding: 6px;
+  background: var(--pl-white);
+}
+
+.label-mapping__check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  color: #3a4a5a;
+}
+
 .multi-photo__progress {
   margin-top: 10px;
   font-size: 11px;

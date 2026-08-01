@@ -3,13 +3,27 @@ function decodeApiMessage(headers) {
   return raw ? decodeURIComponent(raw) : null;
 }
 
-async function postForm(baseUrl, path, formData) {
-  const response = await fetch(`${baseUrl}${path}`, { method: 'POST', body: formData });
+async function postForm(baseUrl, path, formData, { timeoutMs } = {}) {
+  const controller = timeoutMs ? new AbortController() : null;
+  const timeout = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, { method: 'POST', body: formData, signal: controller?.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      const timeoutError = new Error('Label application took too long and was cancelled.');
+      timeoutError.code = 'LABEL_MAPPING_TIMEOUT';
+      throw timeoutError;
+    }
+    throw err;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
   if (!response.ok) {
     let detail = response.statusText;
     try {
       const data = await response.clone().json();
-      if (data && data.detail) detail = data.detail;
+      if (data && data.detail) detail = typeof data.detail === 'string' ? data.detail : data.detail.message || JSON.stringify(data.detail);
     } catch (err) {
       // response body wasn't JSON — keep statusText
     }
@@ -21,8 +35,8 @@ async function postForm(baseUrl, path, formData) {
 }
 
 export function createApiClient(baseUrl) {
-  async function fileResult(path, formData) {
-    const res = await postForm(baseUrl, path, formData);
+  async function fileResult(path, formData, options = {}) {
+    const res = await postForm(baseUrl, path, formData, options);
     return { arrayBuffer: await res.arrayBuffer(), message: decodeApiMessage(res.headers), headers: res.headers };
   }
 
@@ -169,7 +183,7 @@ export function createApiClient(baseUrl) {
       return fileResult('/generate-label', fd);
     },
 
-    async applyLabelTo3d({ file, packagingType, labelPngBlob, uvMode, textureResolution = 1024, language = 'en' }) {
+    async applyLabelTo3d({ file, packagingType, labelPngBlob, uvMode, textureResolution = 1024, language = 'en', timeoutMs = 45000 }) {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('packaging_type', packagingType);
@@ -177,7 +191,7 @@ export function createApiClient(baseUrl) {
       if (uvMode) fd.append('uv_mode', uvMode);
       fd.append('texture_resolution', textureResolution);
       fd.append('language', language);
-      return fileResult('/apply-label-to-3d', fd);
+      return fileResult('/apply-label-to-3d', fd, { timeoutMs });
     },
 
     async setLanguage(language) {

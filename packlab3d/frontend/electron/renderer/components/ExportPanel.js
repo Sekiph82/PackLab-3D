@@ -6,6 +6,29 @@ function arrayBufferToFile(arrayBuffer, name) {
 
 export function mountExportPanel(container, { i18n, store, api, viewer, setStatus }) {
   const buttons = {};
+  const labelMapping = {
+    uvMode: 'bottle_blend',
+    horizontalPosition: 50,
+    verticalPosition: 50,
+    scale: 100,
+    rotation: 0,
+    flipHorizontal: false,
+    flipVertical: false,
+    seamPosition: 0,
+    textureResolution: 1024,
+  };
+
+  function t(key, fallback) {
+    return i18n.t(key, fallback);
+  }
+
+  function withTimeout(promise, timeoutMs, message) {
+    let timeoutId;
+    const timeout = new Promise((_resolve, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+  }
 
   function currentMeshFile(fallbackName = 'mesh.obj') {
     const pipeline = store.getState().pipeline || {};
@@ -16,7 +39,7 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
 
   function requireUnifiedMesh() {
     const mesh = currentMeshFile();
-    if (!mesh) throw new Error('Create a unified design from the photo set first.');
+    if (!mesh) throw new Error(t('reconstruction.errors.createUnifiedFirst', 'Create a unified design from the photo set first.'));
     return mesh;
   }
 
@@ -51,13 +74,21 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
   }
 
   async function loadIntoViewer(arrayBuffer) {
-    if (viewer) await viewer.loadGlbArrayBuffer(arrayBuffer);
+    if (viewer) {
+      setStatus(t('labelMapping.progress.viewerLoadStarted', 'Loading viewer...'));
+      await withTimeout(
+        viewer.loadGlbArrayBuffer(arrayBuffer),
+        12000,
+        t('labelMapping.errors.viewerTimeout', 'The textured model was generated, but viewer loading took too long.')
+      );
+      setStatus(t('labelMapping.progress.viewerLoadCompleted', 'Viewer load completed.'));
+    }
   }
 
-  function makeButton(key, i18nKey, taskName, fn) {
+  function makeButton(key, i18nKey, taskName, fn, labelFallback = key) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = i18n.t(i18nKey, key);
+    btn.textContent = i18n.t(i18nKey, labelFallback);
     btn.addEventListener('click', () => run(taskName, fn).catch(() => {}));
     buttons[key] = btn;
     return btn;
@@ -65,6 +96,8 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
 
   function render() {
     container.innerHTML = '';
+    container.appendChild(renderLabelMappingControls());
+
     const bar = document.createElement('div');
     bar.className = 'export-bar';
 
@@ -134,7 +167,7 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
     bar.appendChild(
       makeButton('generateLabel', 'label.title', 'generate-label', async () => {
         const l = store.getState().label || {};
-        if (!l.style || !l.shape) throw new Error('Pick a label style and shape first.');
+        if (!l.style || !l.shape) throw new Error(t('labelMapping.errors.pickLabelFirst', 'Pick a label style and shape first.'));
         const result = await api.generateLabel({
           style: l.style,
           shape: l.shape,
@@ -163,26 +196,104 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
     );
 
     bar.appendChild(
-      makeButton('applyLabelTo3d', 'export.title', 'apply-label-to-3d', async () => {
+      makeButton('applyLabelTo3d', 'labelMapping.applyTo3d', t('labelMapping.applyTo3d', 'Apply Label to 3D'), async () => {
         const mesh = currentMeshFile();
         const pipeline = store.getState().pipeline || {};
-        if (!mesh || !pipeline.labelPngBytes) throw new Error('Create a unified design and generate a label first.');
+        if (!mesh || !pipeline.labelPngBytes) throw new Error(t('labelMapping.errors.requireDesignAndLabel', 'Create a unified design and generate a label first.'));
         const m = store.getState().measurement || {};
         const labelPngBlob = new Blob([pipeline.labelPngBytes], { type: 'image/png' });
+        setStatus(t('labelMapping.progress.validatingMesh', 'Validating mesh...'));
         const result = await api.applyLabelTo3d({
           file: mesh,
           packagingType: m.packagingType || 'bottle',
           labelPngBlob,
+          uvMode: labelMapping.uvMode,
+          textureResolution: Number(labelMapping.textureResolution) || 1024,
           language: i18n.language,
         });
+        setStatus(t('labelMapping.progress.responseReceived', 'Frontend received response.'));
         setPipeline({ glb: result.arrayBuffer });
         await loadIntoViewer(result.arrayBuffer);
-        if (window.packlab) window.packlab.files.save('labeled_model.glb', result.arrayBuffer).catch(() => {});
         return result;
-      })
+      }, t('labelMapping.applyTo3d', 'Apply Label to 3D'))
     );
 
     container.appendChild(bar);
+  }
+
+  function renderLabelMappingControls() {
+    const panel = document.createElement('div');
+    panel.className = 'label-mapping';
+    const title = document.createElement('div');
+    title.className = 'label-mapping__title';
+    title.textContent = t('labelMapping.title', 'Label Mapping');
+    panel.appendChild(title);
+
+    panel.appendChild(selectField('labelMapping.mappingMode', 'Mapping Mode', 'uvMode', [
+      ['cylindrical', t('labelMapping.modes.cylindrical', 'Cylindrical')],
+      ['box', t('labelMapping.modes.box', 'Box')],
+      ['bottle_blend', t('labelMapping.modes.bottleBlend', 'Bottle Blend')],
+    ]));
+    panel.appendChild(numberField('labelMapping.horizontalPosition', 'Horizontal Position (%)', 'horizontalPosition', 0, 100, 1));
+    panel.appendChild(numberField('labelMapping.verticalPosition', 'Vertical Position (%)', 'verticalPosition', 0, 100, 1));
+    panel.appendChild(numberField('labelMapping.scale', 'Scale (%)', 'scale', 10, 300, 1));
+    panel.appendChild(numberField('labelMapping.rotation', 'Rotation', 'rotation', -180, 180, 1));
+    panel.appendChild(numberField('labelMapping.seamPosition', 'Seam Position (%)', 'seamPosition', 0, 100, 1));
+    panel.appendChild(numberField('labelMapping.textureResolution', 'Preview Quality', 'textureResolution', 256, 4096, 256));
+    panel.appendChild(checkField('labelMapping.flipHorizontal', 'Flip Horizontal', 'flipHorizontal'));
+    panel.appendChild(checkField('labelMapping.flipVertical', 'Flip Vertical', 'flipVertical'));
+    return panel;
+  }
+
+  function selectField(key, fallback, stateKey, options) {
+    const label = document.createElement('label');
+    label.className = 'label-mapping__field';
+    const span = document.createElement('span');
+    span.textContent = t(key, fallback);
+    const select = document.createElement('select');
+    options.forEach(([value, text]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = text;
+      option.selected = labelMapping[stateKey] === value;
+      select.appendChild(option);
+    });
+    select.addEventListener('change', () => {
+      labelMapping[stateKey] = select.value;
+    });
+    label.append(span, select);
+    return label;
+  }
+
+  function numberField(key, fallback, stateKey, min, max, step) {
+    const label = document.createElement('label');
+    label.className = 'label-mapping__field';
+    const span = document.createElement('span');
+    span.textContent = t(key, fallback);
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.value = String(labelMapping[stateKey]);
+    input.addEventListener('input', () => {
+      labelMapping[stateKey] = Number(input.value);
+    });
+    label.append(span, input);
+    return label;
+  }
+
+  function checkField(key, fallback, stateKey) {
+    const label = document.createElement('label');
+    label.className = 'label-mapping__check';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = Boolean(labelMapping[stateKey]);
+    input.addEventListener('change', () => {
+      labelMapping[stateKey] = input.checked;
+    });
+    label.append(input, document.createTextNode(t(key, fallback)));
+    return label;
   }
 
   const unsubscribeI18n = i18n.onChange(render);

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import platform
@@ -803,9 +804,11 @@ async def apply_label_to_3d(
     texture_resolution: int = Form(1024),
     language: Optional[str] = Form(None),
 ):
-    from packlab3d.backend.label_mapping.apply_label import apply_label_to_mesh
-    from packlab3d.backend.label_mapping.bake_texture import bake_texture
-    from packlab3d.backend.label_mapping.export_glb import export_to_glb, validate_glb
+    from packlab3d.backend.label_mapping.service import (
+        DEFAULT_LABEL_MAPPING_TIMEOUT_SECONDS,
+        LabelMappingValidationError,
+        apply_label_mapping_pipeline,
+    )
     from packlab3d.backend.label_mapping.uv import UVMode
     from packlab3d.core.utils.packaging import PackagingType
 
@@ -839,13 +842,53 @@ async def apply_label_to_3d(
     mesh = _read_uploaded_mesh(file, lang)
 
     try:
-        texture = bake_texture(label_package, target_size=(texture_resolution, texture_resolution))
+        pipeline = await asyncio.wait_for(
+            asyncio.to_thread(
+                apply_label_mapping_pipeline,
+                mesh,
+                label_package,
+                resolved_uv_mode,
+                texture_resolution,
+            ),
+            timeout=DEFAULT_LABEL_MAPPING_TIMEOUT_SECONDS,
+        )
     except ModelNotAvailableError:
         raise HTTPException(status_code=503, detail=get_message("errors.modelUnavailable", lang))
+    except LabelMappingValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "LABEL_MAPPING_VALIDATION_FAILED",
+                "recoverable": True,
+                "stage": "mesh-validation",
+                "message": str(exc),
+                "report": exc.report,
+            },
+        ) from exc
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "code": "LABEL_MAPPING_TIMEOUT",
+                "recoverable": True,
+                "stage": "label-mapping",
+                "message": "Label application took too long and was cancelled. Try a simpler mapping mode or reduce mesh complexity.",
+            },
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "LABEL_MAPPING_FAILED",
+                "recoverable": True,
+                "stage": "label-mapping",
+                "message": str(exc),
+            },
+        ) from exc
 
-    result = apply_label_to_mesh(mesh, resolved_uv_mode, texture)
-    glb_bytes = export_to_glb(result)
-    validation = validate_glb(glb_bytes, expect_texture=True, expect_uv=True)
+    glb_bytes = pipeline["glb"]
+    validation = pipeline["glbValidation"]
+    timings = pipeline["timings"]
 
     return Response(
         content=glb_bytes,
@@ -854,13 +897,15 @@ async def apply_label_to_3d(
             "Content-Disposition": 'attachment; filename="labeled_model.glb"',
             "X-Api-Message": _api_message_header("api.labelAppliedTo3D", lang),
             "X-UV-Mode": resolved_uv_mode.value,
-            "X-Texture-Resolution": f"{texture_resolution}x{texture_resolution}",
+            "X-Texture-Resolution": f"{pipeline['textureResolution']}x{pipeline['textureResolution']}",
             "X-File-Count": "1",
             "X-GLB-Valid": str(validation["valid"]).lower(),
             "X-GLB-Mesh-Count": str(validation["meshCount"]),
             "X-GLB-Node-Count": str(validation["nodeCount"]),
             "X-GLB-Texture-Count": str(validation["textureCount"]),
             "X-GLB-Has-UV": str(validation["hasUV"]).lower(),
+            "X-Label-Mapping-Stage-Count": str(len(timings)),
+            "X-Label-Mapping-Duration-Ms": str(timings[-1]["elapsedMs"] if timings else 0),
         },
     )
 

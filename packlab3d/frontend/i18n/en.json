@@ -98,6 +98,86 @@
     "success": "Export completed successfully.",
     "failed": "Export failed. Please try again."
   },
+  "photos": {
+    "add": "Add Photos",
+    "openWorkspace": "Open Photo Workspace",
+    "removeAll": "Remove All",
+    "autoAssignViews": "Auto-Assign Views",
+    "reviewQuality": "Review Photo Quality",
+    "rotateLeft": "Rotate Left",
+    "rotateRight": "Rotate Right",
+    "counterLabel": "Photos",
+    "include": "Include",
+    "quality": "Quality",
+    "mask": "Mask",
+    "qualityAnalysis": "Photo quality analysis",
+    "segmentation": "Photo segmentation",
+    "status": {
+      "uploading": "Uploading photo set...",
+      "qualityComplete": "Photo quality analysis complete."
+    },
+    "errors": {
+      "uploadAtLeastOne": "Upload at least one photo.",
+      "includeAtLeastOne": "Include at least one photo."
+    }
+  },
+  "reconstruction": {
+    "createUnifiedDesign": "Create Unified Design",
+    "mode": "Reconstruction Mode",
+    "unified": "Unified reconstruction",
+    "complete": "Unified reconstruction complete.",
+    "fallbackSuccess": "Unified design generated using parametric fallback.",
+    "providerUsed": "Provider used",
+    "aiModelInstalled": "AI model installed",
+    "fallbackUsed": "Fallback used",
+    "method": "Method",
+    "photosUsed": "Photos used",
+    "photosExcluded": "Photos excluded",
+    "confidence": "Confidence",
+    "aiReconstruction": "AI Reconstruction",
+    "modelWeights": "Model weights",
+    "standardUnifiedDesign": "Standard unified design",
+    "parametricFallback": "Multi-view parametric fallback",
+    "modes": {
+      "auto": "Auto",
+      "multiViewParametric": "Multi-View Parametric",
+      "basicParametric": "Basic Parametric",
+      "experimentalAiReference": "Experimental AI Reference Mesh"
+    },
+    "errors": {
+      "createUnifiedFirst": "Create a unified design from the photo set first."
+    }
+  },
+  "labelMapping": {
+    "title": "Label Mapping",
+    "applyTo3d": "Apply Label to 3D",
+    "mappingMode": "Mapping Mode",
+    "horizontalPosition": "Horizontal Position (%)",
+    "verticalPosition": "Vertical Position (%)",
+    "scale": "Scale (%)",
+    "rotation": "Rotation",
+    "seamPosition": "Seam Position (%)",
+    "textureResolution": "Preview Quality",
+    "flipHorizontal": "Flip Horizontal",
+    "flipVertical": "Flip Vertical",
+    "modes": {
+      "cylindrical": "Cylindrical",
+      "box": "Box",
+      "bottleBlend": "Bottle Blend"
+    },
+    "progress": {
+      "validatingMesh": "Validating mesh...",
+      "responseReceived": "Frontend received response.",
+      "viewerLoadStarted": "Loading viewer...",
+      "viewerLoadCompleted": "Viewer load completed."
+    },
+    "errors": {
+      "requireDesignAndLabel": "Create a unified design and generate a label first.",
+      "viewerTimeout": "The textured model was generated, but viewer loading took too long.",
+      "pickLabelFirst": "Pick a label style and shape first.",
+      "timeout": "Label application took too long and was cancelled."
+    }
+  },
   "common": {
     "ok": "OK",
     "cancel": "Cancel",
@@ -106,6 +186,18 @@
     "back": "Back",
     "loading": "Loading...",
     "error": "Error",
+    "remove": "Remove",
+    "up": "Up",
+    "down": "Down",
+    "yes": "Yes",
+    "no": "No",
+    "installed": "Installed",
+    "notInstalled": "Not installed",
+    "available": "Available",
+    "unavailable": "Unavailable",
+    "retry": "Retry",
+    "timedOut": "Timed Out",
+    "validationFailed": "Validation Failed",
     "requiredField": "This field is required.",
     "invalidNumber": "Please enter a valid number."
   }

@@ -98,6 +98,86 @@
     "success": "Uhamishaji umekamilika kwa mafanikio.",
     "failed": "Uhamishaji umeshindwa. Tafadhali jaribu tena."
   },
+  "photos": {
+    "add": "Ongeza Picha",
+    "openWorkspace": "Fungua Eneo la Picha",
+    "removeAll": "Ondoa Zote",
+    "autoAssignViews": "Panga Mitazamo Kiotomatiki",
+    "reviewQuality": "Kagua Ubora wa Picha",
+    "rotateLeft": "Zungusha Kushoto",
+    "rotateRight": "Zungusha Kulia",
+    "counterLabel": "Picha",
+    "include": "Jumuisha",
+    "quality": "Ubora",
+    "mask": "Maski",
+    "qualityAnalysis": "Uchambuzi wa ubora wa picha",
+    "segmentation": "Ugawaji wa picha",
+    "status": {
+      "uploading": "Inapakia seti ya picha...",
+      "qualityComplete": "Uchambuzi wa ubora wa picha umekamilika."
+    },
+    "errors": {
+      "uploadAtLeastOne": "Pakia angalau picha moja.",
+      "includeAtLeastOne": "Jumuisha angalau picha moja."
+    }
+  },
+  "reconstruction": {
+    "createUnifiedDesign": "Unda Muundo Mmoja",
+    "mode": "Hali ya Uundaji Upya",
+    "unified": "Uundaji upya mmoja",
+    "complete": "Uundaji upya mmoja umekamilika.",
+    "fallbackSuccess": "Muundo mmoja umeundwa kwa njia ya akiba ya kigezo.",
+    "providerUsed": "Mtoa huduma aliyetumika",
+    "aiModelInstalled": "Modeli ya AI imesakinishwa",
+    "fallbackUsed": "Njia ya akiba imetumika",
+    "method": "Mbinu",
+    "photosUsed": "Picha zilizotumika",
+    "photosExcluded": "Picha zilizoondolewa",
+    "confidence": "Uhakika",
+    "aiReconstruction": "Uundaji Upya wa AI",
+    "modelWeights": "Uzito wa modeli",
+    "standardUnifiedDesign": "Muundo mmoja wa kawaida",
+    "parametricFallback": "Akiba ya kigezo ya mitazamo mingi",
+    "modes": {
+      "auto": "Otomatiki",
+      "multiViewParametric": "Kigezo cha Mitazamo Mingi",
+      "basicParametric": "Kigezo cha Msingi",
+      "experimentalAiReference": "Mesh ya Marejeo ya AI ya Majaribio"
+    },
+    "errors": {
+      "createUnifiedFirst": "Unda kwanza muundo mmoja kutoka seti ya picha."
+    }
+  },
+  "labelMapping": {
+    "title": "Uwekaji wa Lebo",
+    "applyTo3d": "Weka Lebo kwenye 3D",
+    "mappingMode": "Hali ya Uwekaji",
+    "horizontalPosition": "Nafasi ya Mlalo (%)",
+    "verticalPosition": "Nafasi ya Wima (%)",
+    "scale": "Kipimo (%)",
+    "rotation": "Mzunguko",
+    "seamPosition": "Nafasi ya Mshono (%)",
+    "textureResolution": "Ubora wa Hakiki",
+    "flipHorizontal": "Geuza Mlalo",
+    "flipVertical": "Geuza Wima",
+    "modes": {
+      "cylindrical": "Silinda",
+      "box": "Sanduku",
+      "bottleBlend": "Mchanganyiko wa Chupa"
+    },
+    "progress": {
+      "validatingMesh": "Inathibitisha mesh...",
+      "responseReceived": "Kiolesura kimepokea jibu.",
+      "viewerLoadStarted": "Inapakia kitazamaji...",
+      "viewerLoadCompleted": "Upakiaji wa kitazamaji umekamilika."
+    },
+    "errors": {
+      "requireDesignAndLabel": "Unda muundo mmoja na tengeneza lebo kwanza.",
+      "viewerTimeout": "Modeli yenye texture imetengenezwa, lakini upakiaji wa kitazamaji umechukua muda mrefu.",
+      "pickLabelFirst": "Chagua kwanza mtindo na umbo la lebo.",
+      "timeout": "Uwekaji wa lebo umechukua muda mrefu na umeghairiwa."
+    }
+  },
   "common": {
     "ok": "Sawa",
     "cancel": "Ghairi",
@@ -106,6 +186,18 @@
     "back": "Rudi",
     "loading": "Inapakia...",
     "error": "Hitilafu",
+    "remove": "Ondoa",
+    "up": "Juu",
+    "down": "Chini",
+    "yes": "Ndiyo",
+    "no": "Hapana",
+    "installed": "Imesakinishwa",
+    "notInstalled": "Haijasakinishwa",
+    "available": "Inapatikana",
+    "unavailable": "Haipatikani",
+    "retry": "Jaribu Tena",
+    "timedOut": "Muda Umeisha",
+    "validationFailed": "Uthibitishaji Umeshindwa",
     "requiredField": "Sehemu hii inahitajika.",
     "invalidNumber": "Tafadhali weka nambari sahihi."
   }

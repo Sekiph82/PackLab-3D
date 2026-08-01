@@ -29,12 +29,20 @@ keySets.slice(1).forEach((keys, idx) => {
 const i18n = new I18n();
 assert.strictEqual(i18n.currentLanguage, 'en');
 assert.strictEqual(i18n.t('splash.slogan'), 'Precision Packaging Design.');
+assert.strictEqual(i18n.t('photos.add'), 'Add Photos');
+assert.strictEqual(i18n.t('reconstruction.createUnifiedDesign'), 'Create Unified Design');
+assert.strictEqual(i18n.t('labelMapping.applyTo3d'), 'Apply Label to 3D');
+assert.strictEqual(i18n.t('labelMapping.errors.timeout'), 'Label application took too long and was cancelled.');
 
 i18n.setLanguage('tr');
 assert.strictEqual(i18n.t('splash.slogan'), 'Hassas Ambalaj Tasarımı');
+assert.notStrictEqual(i18n.t('photos.add'), 'Add Photos');
+assert.notStrictEqual(i18n.t('labelMapping.applyTo3d'), 'Apply Label to 3D');
 
 i18n.setLanguage('sw');
 assert.strictEqual(i18n.t('splash.slogan'), 'Ubunifu wa Ufungaji wa Usahihi');
+assert.notStrictEqual(i18n.t('photos.add'), 'Add Photos');
+assert.notStrictEqual(i18n.t('labelMapping.applyTo3d'), 'Apply Label to 3D');
 
 // Missing key falls back to the key path itself.
 assert.strictEqual(i18n.t('nonexistent.key'), 'nonexistent.key');

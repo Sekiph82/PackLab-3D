@@ -1,6 +1,7 @@
 import io
 import os
 import tempfile
+import time
 import zipfile
 from urllib.parse import unquote
 
@@ -325,6 +326,8 @@ def test_apply_label_to_3d_success_with_default_uv_mode():
         assert response.headers["X-UV-Mode"] == "box"
         assert response.headers["X-Texture-Resolution"] == "256x256"
         assert response.headers["X-File-Count"] == "1"
+        assert int(response.headers["X-Label-Mapping-Stage-Count"]) >= 8
+        assert float(response.headers["X-Label-Mapping-Duration-Ms"]) >= 0
         assert response.content[:4] == b"glTF"
 
 
@@ -377,3 +380,25 @@ def test_apply_label_to_3d_svg_only_returns_503():
     )
     assert response.status_code == 503
     assert response.json()["detail"] == get_message("errors.modelUnavailable", "en")
+
+
+def test_apply_label_to_3d_timeout_returns_structured_error(monkeypatch):
+    import packlab3d.backend.label_mapping.service as label_service
+
+    def slow_pipeline(*_args, **_kwargs):
+        time.sleep(0.1)
+        return {}
+
+    monkeypatch.setattr(label_service, "DEFAULT_LABEL_MAPPING_TIMEOUT_SECONDS", 0.001)
+    monkeypatch.setattr(label_service, "apply_label_mapping_pipeline", slow_pipeline)
+
+    files = {
+        "file": ("box.obj", _box_obj_bytes(10, 20, 30), "application/octet-stream"),
+        "label_png": ("label.png", _png_bytes((64, 64)), "image/png"),
+    }
+    response = client.post("/apply-label-to-3d", files=files, data={"packaging_type": "box"})
+
+    assert response.status_code == 504
+    detail = response.json()["detail"]
+    assert detail["code"] == "LABEL_MAPPING_TIMEOUT"
+    assert detail["recoverable"] is True

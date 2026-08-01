@@ -50,7 +50,7 @@ async function waitForCdp(port) {
   return false;
 }
 
-function launchDirect({ port, forceBackendFail, splashHoldMs }) {
+function launchDirect({ port, forceBackendFail, forceLabelMappingTimeout, splashHoldMs }) {
   return spawn(exePath, [], {
     cwd: releaseRoot,
     windowsHide: true,
@@ -60,6 +60,10 @@ function launchDirect({ port, forceBackendFail, splashHoldMs }) {
       PACKLAB_STARTUP_TIMEOUT_MS: '45000',
       PACKLAB_SPLASH_HOLD_MS: String(splashHoldMs || 0),
       ...(forceBackendFail ? { PACKLAB_FORCE_BACKEND_FAIL: '1' } : {}),
+      ...(forceLabelMappingTimeout ? {
+        PACKLAB_LABEL_MAPPING_TIMEOUT_SECONDS: '1',
+        PACKLAB_FORCE_LABEL_MAPPING_SLEEP_SECONDS: '2',
+      } : {}),
     },
   });
 }
@@ -119,7 +123,12 @@ async function runScenario(name, index) {
     : null;
   const child = name === 'shortcut'
     ? await launchShortcut({ port, splashHoldMs: capturePath ? 5000 : 0 })
-    : launchDirect({ port, forceBackendFail: name === 'degraded', splashHoldMs: capturePath ? 5000 : 0 });
+    : launchDirect({
+        port,
+        forceBackendFail: name === 'degraded',
+        forceLabelMappingTimeout: name === 'label-timeout',
+        splashHoldMs: capturePath ? 5000 : 0,
+      });
 
   const errors = [];
   let browser;
@@ -162,7 +171,7 @@ async function runScenario(name, index) {
       await page.waitForSelector('#diagnostics-dialog[open]', { timeout: 5000 });
       await page.keyboard.press('Escape').catch(() => {});
 
-      if (['multiphoto', 'primary-unified', 'one-photo-unified'].includes(name)) {
+      if (['multiphoto', 'primary-unified', 'one-photo-unified', 'label-mapping', 'label-timeout'].includes(name)) {
         const screenshotDir = process.env.PACKLAB_MULTIPHOTO_SCREENSHOT_DIR || '';
         const tenFiles = createSmokePngFiles(10);
         if (name === 'primary-unified') {
@@ -186,7 +195,7 @@ async function runScenario(name, index) {
           if (thumbnailCount !== 10) throw new Error(`Expected 10 thumbnails, got ${thumbnailCount}`);
         }
 
-        if (name === 'multiphoto' || name === 'primary-unified') {
+        if (name === 'multiphoto' || name === 'primary-unified' || name === 'label-mapping' || name === 'label-timeout') {
           await page.locator('.multi-photo__actions button', { hasText: 'Remove All' }).click();
           await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 0, null, { timeout: 5000 });
         }
@@ -227,6 +236,70 @@ async function runScenario(name, index) {
         if (pipelineStatus.includes('generate-mesh FAILED')) throw new Error(`Legacy generate-mesh failure leaked into primary workflow: ${pipelineStatus}`);
         if (!pipelineStatus.includes('Unified design generated using parametric fallback')) throw new Error(`Expected fallback success status, got: ${pipelineStatus}`);
         if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase4-unified-design-fallback-${Date.now()}.png`), fullPage: true });
+
+        if (name === 'label-mapping' || name === 'label-timeout') {
+          await page.locator('#export-panel button', { hasText: 'Label Design' }).click();
+          try {
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Label generated successfully'),
+              null,
+              { timeout: 30000 }
+            );
+          } catch (err) {
+            const details = await page.evaluate(() => ({
+              status: document.querySelector('#pipeline-status')?.textContent || '',
+              buttons: [...document.querySelectorAll('#export-panel button')].map((button) => ({
+                text: button.textContent,
+                disabled: button.disabled,
+              })),
+              previewSrc: document.querySelector('#label-preview')?.getAttribute('src') || '',
+            }));
+            throw new Error(`Label generation did not complete: ${JSON.stringify(details)}`);
+          }
+          await page.locator('.label-mapping select').selectOption(name === 'label-mapping' ? 'cylindrical' : 'box');
+          await page.locator('#export-panel button', { hasText: 'Apply Label to 3D' }).click();
+          if (name === 'label-timeout') {
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Label application took too long'),
+              null,
+              { timeout: 30000 }
+            );
+            const diagnostics = await page.evaluate(() => window.packlab.diagnostics.get());
+            const live = await fetch(`${diagnostics.backendUrl}/health/live`).then((res) => res.json());
+            if (live.status !== 'alive') throw new Error(`Backend not responsive after label timeout: ${JSON.stringify(live)}`);
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase5-label-timeout-${Date.now()}.png`), fullPage: true });
+          } else {
+            try {
+              await page.waitForFunction(
+                () => {
+                  const text = document.querySelector('#pipeline-status')?.textContent || '';
+                  return text.includes('Viewer load completed') || text.includes('Label applied to 3D model.');
+                },
+                null,
+                { timeout: 60000 }
+              );
+            } catch (err) {
+              const details = await page.evaluate(() => ({
+                status: document.querySelector('#pipeline-status')?.textContent || '',
+                exportButtons: [...document.querySelectorAll('#export-panel button')].map((button) => ({
+                  text: button.textContent,
+                  disabled: button.disabled,
+                })),
+                canvasCount: document.querySelectorAll('#threejs-viewer canvas').length,
+              }));
+              throw new Error(`Label mapping did not complete viewer load: ${JSON.stringify(details)}`);
+            }
+            const glbLoaded = await page.evaluate(() => Boolean(window.packlab?.diagnostics?.get));
+            if (!glbLoaded) throw new Error('Label mapping completed but diagnostics bridge disappeared');
+            if (screenshotDir) {
+              await page.screenshot({ path: path.join(screenshotDir, `phase5-label-mapping-${Date.now()}.png`), fullPage: true });
+              await page.locator('#language-switcher button[data-lang="tr"]').click();
+              await page.screenshot({ path: path.join(screenshotDir, `phase5-localization-tr-${Date.now()}.png`), fullPage: true });
+              await page.locator('#language-switcher button[data-lang="sw"]').click();
+              await page.screenshot({ path: path.join(screenshotDir, `phase5-localization-sw-${Date.now()}.png`), fullPage: true });
+            }
+          }
+        }
       }
     }
 
