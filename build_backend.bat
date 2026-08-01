@@ -9,6 +9,7 @@ set ROOT=%~dp0
 set BACKEND_DIR=%ROOT%packlab3d\backend
 set ENTRY=%BACKEND_DIR%\api\main.py
 set DIST_DIR=%BACKEND_DIR%\dist
+set BUILD_DIR=%BACKEND_DIR%\build
 set STAGE_DIR=%ROOT%packlab3d\frontend\resources\backend
 
 if not exist "%ENTRY%" (
@@ -17,22 +18,41 @@ if not exist "%ENTRY%" (
     exit /b 1
 )
 
-where pyinstaller >nul 2>nul
-if errorlevel 1 (
-    echo [build_backend] ERROR: pyinstaller not found on PATH. Run: pip install pyinstaller
+set PYINSTALLER=
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$cmd = Get-Command pyinstaller -ErrorAction SilentlyContinue; if ($cmd) { $cmd.Source }"`) do set PYINSTALLER=%%I
+
+if "%PYINSTALLER%"=="" (
+    for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$root = Join-Path $env:LOCALAPPDATA 'Programs\Python'; if (Test-Path $root) { Get-ChildItem -Path $root -Recurse -Filter pyinstaller.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName }"`) do set PYINSTALLER=%%I
+)
+
+if "%PYINSTALLER%"=="" (
+    echo [build_backend] ERROR: pyinstaller not found. Run: pip install pyinstaller
     exit /b 1
 )
 
-echo [build_backend] Running PyInstaller...
-pyinstaller --noconfirm --onefile --distpath "%DIST_DIR%" --name PackLab3DBackend "%ENTRY%"
+for /f %%P in ('powershell -NoProfile -Command "Get-Process PackLab3DBackend -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id"') do (
+    echo [build_backend] ERROR: PackLab3DBackend.exe is running as PID %%P. Close it before building.
+    exit /b 1
+)
+
+if exist "%DIST_DIR%" rmdir /S /Q "%DIST_DIR%"
+if exist "%BUILD_DIR%" rmdir /S /Q "%BUILD_DIR%"
+if exist "%STAGE_DIR%" rmdir /S /Q "%STAGE_DIR%"
+
+echo [build_backend] Running PyInstaller onedir...
+"%PYINSTALLER%" --noconfirm --onedir --distpath "%DIST_DIR%" --workpath "%BUILD_DIR%" --name PackLab3DBackend --hidden-import pygltflib --add-data "%ROOT%packlab3d\backend\i18n;packlab3d\backend\i18n" "%ENTRY%"
 if errorlevel 1 (
     echo [build_backend] ERROR: PyInstaller build failed.
     exit /b 1
 )
 
-echo [build_backend] Staging backend exe for electron-builder...
+echo [build_backend] Staging backend runtime for electron-builder...
 if not exist "%STAGE_DIR%" mkdir "%STAGE_DIR%"
-copy /Y "%DIST_DIR%\PackLab3DBackend.exe" "%STAGE_DIR%\PackLab3DBackend.exe" >nul
+robocopy "%DIST_DIR%\PackLab3DBackend" "%STAGE_DIR%" /E /NFL /NDL /NJH /NJS
+if errorlevel 8 (
+    echo [build_backend] ERROR: backend staging failed.
+    exit /b 1
+)
 
 echo [build_backend] Done: %STAGE_DIR%\PackLab3DBackend.exe
 endlocal

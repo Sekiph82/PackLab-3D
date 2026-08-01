@@ -6,4 +6,7 @@ module.exports = {
   transform: {
     '^.+\\.js$': 'babel-jest',
   },
+  moduleNameMapper: {
+    '\\.svg$': '<rootDir>/test-mocks/fileMock.cjs',
+  },
 };

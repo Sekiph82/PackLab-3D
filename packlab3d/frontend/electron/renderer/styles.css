@@ -56,7 +56,7 @@ html, body {
 }
 
 #loading-container {
-  width: 300px;
+  width: min(520px, calc(100vw - 32px));
   margin-top: 12px;
   text-align: center;
 }
@@ -82,6 +82,38 @@ html, body {
   background: var(--pl-white);
   border-radius: 7px;
   transition: width 0.3s ease;
+}
+
+.startup-stages {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  text-align: left;
+  font-size: 12px;
+}
+
+.startup-stage {
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.startup-stage__state {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.startup-stage--warning .startup-stage__state {
+  color: #ffe083;
+}
+
+.startup-stage--error .startup-stage__state {
+  color: #ffd2dc;
 }
 
 /* ---------- App shell ---------- */
@@ -124,6 +156,16 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.diagnostics-button {
+  background: transparent;
+  border: 1px solid var(--pl-white);
+  color: var(--pl-white);
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
 }
 
 .icon {
@@ -448,4 +490,46 @@ html, body {
   color: #3a4a5a;
   white-space: pre-wrap;
   margin-top: 12px;
+}
+
+.diagnostics-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(720px, calc(100vh - 32px));
+  border: 1px solid #dde3ea;
+  border-radius: 6px;
+}
+
+.diagnostics-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.diagnostics-dialog__header,
+.diagnostics-dialog__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.diagnostics-dialog h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.diagnostics-dialog button {
+  border: 1px solid var(--pl-blue);
+  background: var(--pl-white);
+  color: var(--pl-blue);
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+#diagnostics-content {
+  overflow: auto;
+  max-height: 520px;
+  padding: 10px;
+  background: #f5f7fa;
+  border: 1px solid #dde3ea;
+  font-size: 12px;
 }

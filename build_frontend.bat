@@ -1,5 +1,5 @@
 @echo off
-REM Builds the Electron production app via electron-builder (dir target — no
+REM Builds the Electron production app via electron-builder (dir target ??? no
 REM installer, no self-extracting portable wrapper). Flattens the resulting
 REM win-unpacked/ output directly into release/, so release\PackLab3D.exe runs
 REM straight from disk with no TEMP extraction step.
@@ -18,6 +18,16 @@ if not exist "%FRONTEND_DIR%\electron\main.js" (
     exit /b 1
 )
 
+for /f %%P in ('powershell -NoProfile -Command "Get-Process PackLab3D -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id"') do (
+    echo [build_frontend] ERROR: PackLab3D.exe is running as PID %%P. Close it before building.
+    exit /b 1
+)
+
+for /f %%P in ('powershell -NoProfile -Command "Get-Process PackLab3DBackend -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id"') do (
+    echo [build_frontend] ERROR: PackLab3DBackend.exe is running as PID %%P. Close it before building.
+    exit /b 1
+)
+
 if not exist "%FRONTEND_DIR%\resources\backend\PackLab3DBackend.exe" (
     echo [build_frontend] ERROR: backend exe not staged. Run build_backend.bat first.
     exit /b 1
@@ -31,13 +41,30 @@ if not exist "%FRONTEND_DIR%\build\icon.png" (
 
 REM Clear any previous build output so nothing stale lingers in release\.
 if exist "%RELEASE_DIR%" rmdir /S /Q "%RELEASE_DIR%"
+if exist "%FRONTEND_DIR%\dist" rmdir /S /Q "%FRONTEND_DIR%\dist"
+if exist "%FRONTEND_DIR%\electron\renderer\dist" rmdir /S /Q "%FRONTEND_DIR%\electron\renderer\dist"
 
 pushd "%FRONTEND_DIR%"
 
-echo [build_frontend] Installing dependencies...
-call npm install
+if not exist "%FRONTEND_DIR%\node_modules" (
+    if exist "%FRONTEND_DIR%\package-lock.json" (
+        echo [build_frontend] Installing dependencies with npm ci...
+        call npm ci
+    ) else (
+        echo [build_frontend] Installing dependencies with npm install...
+        call npm install
+    )
+    if errorlevel 1 (
+        echo [build_frontend] ERROR: dependency installation failed.
+        popd
+        exit /b 1
+    )
+)
+
+echo [build_frontend] Running frontend tests...
+call npm test -- --runInBand
 if errorlevel 1 (
-    echo [build_frontend] ERROR: npm install failed.
+    echo [build_frontend] ERROR: frontend tests failed.
     popd
     exit /b 1
 )
@@ -66,7 +93,7 @@ if errorlevel 8 (
 if exist "%RELEASE_DIR%\win-unpacked" rmdir /S /Q "%RELEASE_DIR%\win-unpacked"
 
 REM electron-builder always names the main exe after productName ("PackLab 3D.exe",
-REM with a space) — rename to the exact path the shortcut and this script's callers expect.
+REM with a space) ??? rename to the exact path the shortcut and this script's callers expect.
 if exist "%RELEASE_DIR%\PackLab 3D.exe" (
     move /Y "%RELEASE_DIR%\PackLab 3D.exe" "%RELEASE_DIR%\PackLab3D.exe" >nul
 )
@@ -75,6 +102,16 @@ if not exist "%RELEASE_DIR%\PackLab3D.exe" (
     echo [build_frontend] ERROR: %RELEASE_DIR%\PackLab3D.exe not found after flattening/rename.
     exit /b 1
 )
+
+echo [build_frontend] Verifying release contents...
+pushd "%FRONTEND_DIR%"
+call npm run verify:release
+if errorlevel 1 (
+    popd
+    echo [build_frontend] ERROR: release verification failed.
+    exit /b 1
+)
+popd
 
 echo [build_frontend] Done. Output: %RELEASE_DIR%\PackLab3D.exe
 endlocal

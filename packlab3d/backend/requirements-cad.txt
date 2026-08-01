@@ -1,0 +1,4 @@
+# Optional CAD backends.
+# FreeCAD is installed as a desktop application and exposes its Python modules
+# from its own bundled runtime, not from PyPI.
+pythonocc-core

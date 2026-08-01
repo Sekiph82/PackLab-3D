@@ -1,6 +1,7 @@
 # --- Node / Electron ---
 node_modules/
 packlab3d/frontend/build/
+packlab3d/frontend/electron/renderer/dist/
 packlab3d/frontend/test-results/
 packlab3d/frontend/playwright-report/
 

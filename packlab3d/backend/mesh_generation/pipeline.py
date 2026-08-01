@@ -1,4 +1,6 @@
 import enum
+from dataclasses import dataclass
+from threading import Lock
 
 import numpy as np
 import open3d as o3d
@@ -11,6 +13,43 @@ class MeshBackend(str, enum.Enum):
     TRIPOSR = "triposr"
     HUNYUAN3D = "hunyuan3d"
     PICTOMESH = "pictomesh"
+
+
+@dataclass
+class TripoSRModelManager:
+    model: object = None
+    device: str = "cpu"
+    chunk_size: int = 8192
+
+    def __post_init__(self):
+        self._lock = Lock()
+
+    def get_model(self, chunk_size: int = 8192, device: str | None = None):
+        try:
+            import torch
+            from tsr.system import TSR
+        except ImportError as exc:
+            raise ModelNotAvailableError(
+                "TripoSR requires torch and the 'tsr' package from "
+                "https://github.com/VAST-AI-Research/TripoSR. It is optional and "
+                "is not installed with the PackLab 3D core runtime."
+            ) from exc
+
+        resolved_device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        with self._lock:
+            if self.model is None or self.device != resolved_device:
+                self.model = TSR.from_pretrained(
+                    "stabilityai/TripoSR", config_name="config.yaml", weight_name="model.ckpt"
+                )
+                self.model.to(resolved_device)
+                self.device = resolved_device
+            if self.chunk_size != chunk_size:
+                self.model.renderer.set_chunk_size(chunk_size)
+                self.chunk_size = chunk_size
+            return self.model, torch, resolved_device
+
+
+TRIPOSR_MANAGER = TripoSRModelManager()
 
 
 def generate_mesh(
@@ -27,7 +66,7 @@ def generate_mesh(
 
 
 def _generate_triposr(
-    image: Image.Image, chunk_size: int = 8192, device: str = "cpu"
+    image: Image.Image, chunk_size: int = 8192, device: str | None = None
 ) -> o3d.geometry.TriangleMesh:
     """Reference integration for VAST-AI-Research/TripoSR.
 
@@ -35,24 +74,10 @@ def _generate_triposr(
     Matches TripoSR's published run.py as of its public README — re-check against
     your installed version if this raises AttributeError.
     """
-    try:
-        import torch
-        from tsr.system import TSR
-    except ImportError as exc:
-        raise ModelNotAvailableError(
-            "TripoSR requires torch and the 'tsr' package from "
-            "https://github.com/VAST-AI-Research/TripoSR "
-            "(pip install -r requirements.txt from that repo; 'tsr' is not on PyPI)."
-        ) from exc
-
-    model = TSR.from_pretrained(
-        "stabilityai/TripoSR", config_name="config.yaml", weight_name="model.ckpt"
-    )
-    model.renderer.set_chunk_size(chunk_size)
-    model.to(device)
+    model, torch, resolved_device = TRIPOSR_MANAGER.get_model(chunk_size=chunk_size, device=device)
 
     with torch.no_grad():
-        scene_codes = model([image.convert("RGB")], device=device)
+        scene_codes = model([image.convert("RGB")], device=resolved_device)
     meshes = model.extract_mesh(scene_codes, has_vertex_color=True)
     trimesh_mesh = meshes[0]
     return mesh_from_vertices_faces(

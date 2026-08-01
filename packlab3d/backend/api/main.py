@@ -1,64 +1,44 @@
 import logging
 import os
+import platform
+import sys
 import tempfile
+import time
+import importlib.util
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
-import open3d as o3d
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from packlab3d.backend.cad_drawings.generate_2d import (
-    CadBackend,
-    build_zip_package,
-    count_files,
-    generate_technical_drawing_package,
-)
 from packlab3d.backend.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_message
 from packlab3d.backend.i18n import set_language as i18n_set_language
-from packlab3d.backend.label_engine.generate_label import (
-    build_zip_package as build_label_zip_package,
-)
-from packlab3d.backend.label_engine.generate_label import count_files as count_label_files
-from packlab3d.backend.label_engine.generate_label import generate_label_package
-from packlab3d.backend.label_engine.render import LabelContent, LabelSpec
-from packlab3d.backend.label_engine.shapes import LabelShape
-from packlab3d.backend.label_engine.styles import LabelStyle
-from packlab3d.backend.label_mapping.apply_label import apply_label_to_mesh
-from packlab3d.backend.label_mapping.bake_texture import bake_texture
-from packlab3d.backend.label_mapping.export_glb import export_to_glb
-from packlab3d.backend.label_mapping.uv import UVMode
-from packlab3d.backend.mesh_cleanup.cleanup import cleanup_mesh as run_mesh_cleanup
-from packlab3d.backend.mesh_generation.pipeline import MeshBackend
-from packlab3d.backend.mesh_generation.pipeline import generate_mesh as run_mesh_generation
-from packlab3d.backend.mesh_scaling.scaling import TargetDimensions, scale_mesh_to_dimensions
-from packlab3d.backend.wall_thickness.apply import apply_wall_thickness as run_apply_wall_thickness
-from packlab3d.backend.wall_thickness.rules import (
-    get_default_wall_thickness_mm,
-    get_material_properties,
-    select_material,
-    validate_material,
-    validate_wall_thickness_mm,
-)
 from packlab3d.core.utils.errors import ModelNotAvailableError
-from packlab3d.core.utils.packaging import PackagingType
 
 logger = logging.getLogger("packlab3d.api")
+IMPORT_STARTED_AT = time.perf_counter()
 
 app = FastAPI(title="PackLab 3D API", version="0.1.0")
 
-# Default UV unwrap strategy per packaging type: bottles are cylindrical body +
-# planar caps; box/sachet/jerrycan are treated as box-projected (real jerrycans
-# are typically rectangular prisms, not cylindrical).
-PACKAGING_TYPE_UV_MODE = {
-    PackagingType.BOTTLE: UVMode.BOTTLE_BLEND,
-    PackagingType.BOX: UVMode.BOX,
-    PackagingType.SACHET: UVMode.BOX,
-    PackagingType.JERRYCAN: UVMode.BOX,
-}
+def _configure_logging() -> None:
+    log_dir = os.environ.get("PACKLAB_LOG_DIR")
+    handlers = [logging.StreamHandler()]
+    if log_dir:
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(Path(log_dir) / "backend.log", encoding="utf-8"))
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        handlers=handlers,
+        force=True,
+    )
+
+
+_configure_logging()
+logger.info("FastAPI import start", extra={"elapsed_ms": round((time.perf_counter() - IMPORT_STARTED_AT) * 1000, 2)})
 
 
 class LanguageRequest(BaseModel):
@@ -90,7 +70,16 @@ def _api_message_header(key: str, lang: str) -> str:
     return quote(get_message(key, lang), safe="")
 
 
-def _read_uploaded_mesh(file: UploadFile, lang: str) -> o3d.geometry.TriangleMesh:
+def _open3d():
+    started = time.perf_counter()
+    import open3d as o3d
+
+    logger.info("Open3D load", extra={"elapsed_ms": round((time.perf_counter() - started) * 1000, 2)})
+    return o3d
+
+
+def _read_uploaded_mesh(file: UploadFile, lang: str):
+    o3d = _open3d()
     suffix = Path(file.filename or "").suffix or ".obj"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(file.file.read())
@@ -108,7 +97,8 @@ def _read_uploaded_mesh(file: UploadFile, lang: str) -> o3d.geometry.TriangleMes
         os.unlink(tmp_path)
 
 
-def _mesh_file_response(mesh: o3d.geometry.TriangleMesh, download_name: str, headers: dict) -> FileResponse:
+def _mesh_file_response(mesh, download_name: str, headers: dict) -> FileResponse:
+    o3d = _open3d()
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".obj")
     tmp_path = tmp.name
     tmp.close()
@@ -125,6 +115,68 @@ def _mesh_file_response(mesh: o3d.geometry.TriangleMesh, download_name: str, hea
 @app.get("/", response_model=StatusResponse)
 def health():
     return StatusResponse(status="ok", message="PackLab 3D API")
+
+
+@app.get("/health/live")
+def health_live():
+    return {"status": "alive"}
+
+
+@app.get("/health/ready")
+def health_ready():
+    missing = []
+    for name in ("open3d", "trimesh", "pygltflib"):
+        if importlib.util.find_spec(name) is None:
+            missing.append(name)
+    return {"status": "ready" if not missing else "degraded", "missing": missing}
+
+
+@app.get("/version")
+def version():
+    return {
+        "app": app.version,
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "packaged": os.environ.get("PACKLAB_PACKAGED") == "1",
+    }
+
+
+def _module_available(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except ModuleNotFoundError:
+        return False
+
+
+@app.get("/capabilities")
+def capabilities():
+    torch_available = _module_available("torch")
+    cuda = False
+    if torch_available:
+        try:
+            import torch
+
+            cuda = bool(torch.cuda.is_available())
+        except Exception:
+            cuda = False
+
+    freecad = _module_available("FreeCAD") and _module_available("Part")
+    occ = _module_available("OCC") and _module_available("OCC.Core")
+    triposr = torch_available and _module_available("tsr")
+    sam = torch_available and _module_available("segment_anything") and bool(os.environ.get("PACKLAB_SAM_CHECKPOINT"))
+    caps = {
+        "open3d": _module_available("open3d"),
+        "trimesh": _module_available("trimesh"),
+        "pygltflib": _module_available("pygltflib"),
+        "triposr": triposr,
+        "sam": sam,
+        "cuda": cuda,
+        "freecad": freecad,
+        "occ": occ,
+        "label_engine": True,
+        "glb_export": _module_available("pygltflib"),
+    }
+    return caps
 
 
 @app.post("/set-language", response_model=StatusResponse)
@@ -147,10 +199,12 @@ async def process_image(file: UploadFile = File(...), language: Optional[str] = 
 @app.post("/generate-mesh")
 async def generate_mesh(
     file: UploadFile = File(...),
-    backend: str = Form(MeshBackend.TRIPOSR.value),
+    backend: str = Form("triposr"),
     language: Optional[str] = Form(None),
 ):
     from PIL import Image
+    from packlab3d.backend.mesh_generation.pipeline import MeshBackend
+    from packlab3d.backend.mesh_generation.pipeline import generate_mesh as run_mesh_generation
 
     lang = _resolve_language(language)
     try:
@@ -188,6 +242,8 @@ async def scale_mesh(
     uniform: bool = Form(False),
     language: Optional[str] = Form(None),
 ):
+    from packlab3d.backend.mesh_scaling.scaling import TargetDimensions, scale_mesh_to_dimensions
+
     lang = _resolve_language(language)
     mesh = _read_uploaded_mesh(file, lang)
     target = TargetDimensions(
@@ -224,6 +280,8 @@ async def cleanup_mesh(
     up_axis: str = Form("y"),
     language: Optional[str] = Form(None),
 ):
+    from packlab3d.backend.mesh_cleanup.cleanup import cleanup_mesh as run_mesh_cleanup
+
     lang = _resolve_language(language)
     mesh = _read_uploaded_mesh(file, lang)
 
@@ -252,6 +310,15 @@ async def apply_wall_thickness(
     material: Optional[str] = Form(None),
     language: Optional[str] = Form(None),
 ):
+    from packlab3d.backend.wall_thickness.apply import apply_wall_thickness as run_apply_wall_thickness
+    from packlab3d.backend.wall_thickness.rules import (
+        get_default_wall_thickness_mm,
+        get_material_properties,
+        select_material,
+        validate_wall_thickness_mm,
+    )
+    from packlab3d.core.utils.packaging import PackagingType
+
     lang = _resolve_language(language)
 
     try:
@@ -304,11 +371,18 @@ async def apply_wall_thickness(
 @app.post("/generate-2d")
 async def generate_2d(
     file: UploadFile = File(...),
-    backend: str = Form(CadBackend.MESH_PROJECTION.value),
+    backend: str = Form("mesh_projection"),
     material: Optional[str] = Form(None),
     wall_thickness_mm: Optional[float] = Form(None),
     language: Optional[str] = Form(None),
 ):
+    from packlab3d.backend.cad_drawings.generate_2d import (
+        CadBackend,
+        build_zip_package,
+        count_files,
+        generate_technical_drawing_package,
+    )
+
     lang = _resolve_language(language)
 
     try:
@@ -361,6 +435,15 @@ async def generate_label(
     logo: Optional[UploadFile] = File(None),
 ):
     from PIL import Image as PILImage
+    from packlab3d.backend.label_engine.generate_label import (
+        build_zip_package as build_label_zip_package,
+    )
+    from packlab3d.backend.label_engine.generate_label import count_files as count_label_files
+    from packlab3d.backend.label_engine.generate_label import generate_label_package
+    from packlab3d.backend.label_engine.render import LabelContent, LabelSpec
+    from packlab3d.backend.label_engine.shapes import LabelShape
+    from packlab3d.backend.label_engine.styles import LabelStyle
+    from packlab3d.backend.wall_thickness.rules import validate_material
 
     lang = _resolve_language(language)
 
@@ -435,6 +518,12 @@ async def apply_label_to_3d(
     texture_resolution: int = Form(1024),
     language: Optional[str] = Form(None),
 ):
+    from packlab3d.backend.label_mapping.apply_label import apply_label_to_mesh
+    from packlab3d.backend.label_mapping.bake_texture import bake_texture
+    from packlab3d.backend.label_mapping.export_glb import export_to_glb
+    from packlab3d.backend.label_mapping.uv import UVMode
+    from packlab3d.core.utils.packaging import PackagingType
+
     lang = _resolve_language(language)
 
     try:
@@ -448,7 +537,10 @@ async def apply_label_to_3d(
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Unknown UV mode: {uv_mode}")
     else:
-        resolved_uv_mode = PACKAGING_TYPE_UV_MODE[packaging]
+        if packaging.value == "bottle":
+            resolved_uv_mode = UVMode.BOTTLE_BLEND
+        else:
+            resolved_uv_mode = UVMode.BOX
 
     if label_png is not None and label_png.filename:
         label_package = {"png": await label_png.read()}
@@ -485,3 +577,19 @@ async def apply_label_to_3d(
 @app.post("/export", response_model=StatusResponse)
 def export(payload: LangOnlyRequest):
     _not_implemented(_resolve_language(payload.language))
+
+
+def _main() -> None:
+    import argparse
+    import uvicorn
+
+    parser = argparse.ArgumentParser(description="PackLab 3D backend")
+    parser.add_argument("--host", default=os.environ.get("PACKLAB_BACKEND_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PACKLAB_BACKEND_PORT", "8000")))
+    args = parser.parse_args()
+    logger.info("Health endpoint available", extra={"host": args.host, "port": args.port})
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+
+
+if __name__ == "__main__":
+    _main()

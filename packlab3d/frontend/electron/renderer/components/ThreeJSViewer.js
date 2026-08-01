@@ -1,7 +1,3 @@
-// Resolved via the import map in index.html (three.importmap.json) — required
-// because three's own addon modules (OrbitControls, GLTFLoader) import the
-// bare specifier 'three' internally, which only an import map can resolve
-// without a bundler.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -99,6 +95,7 @@ export function mountThreeJsViewer(container, { i18n }) {
   resize();
   window.addEventListener('resize', resize);
   animate();
+  window.dispatchEvent(new CustomEvent('packlab:viewer-ready'));
 
   return {
     loadGlbArrayBuffer,

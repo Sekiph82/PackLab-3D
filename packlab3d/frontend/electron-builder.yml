@@ -10,8 +10,11 @@ directories:
   buildResources: build
 
 files:
-  - electron/**/*
-  - ui/**/*
+  - electron/main.js
+  - electron/preload.js
+  - electron/logger.js
+  - electron/backend-process.js
+  - electron/renderer/dist/**/*
   - i18n/**/*
   - package.json
 
@@ -22,10 +25,15 @@ extraResources:
     to: backend
     filter:
       - "**/*"
+  - from: ../../PackLab 3D logo pack
+    to: logo-pack
+    filter:
+      - "*.png"
 
 win:
   target: dir
   icon: build/icon.png
+  executableName: PackLab3D
   # NOTE: electron-builder auto-converts a single square PNG (>=256x256) to .ico.
   # Source: "PackLab 3D logo pack/512x512 px.png" — copy it to build/icon.png before building.
   # dir (not nsis, not portable): unpacked build, no installer, no self-extraction

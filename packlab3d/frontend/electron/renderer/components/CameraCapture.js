@@ -1,3 +1,5 @@
+import cameraIconUrl from '../icons/camera.svg';
+
 export function mountCameraCapture(container, { onCapture }) {
   container.innerHTML = '';
 
@@ -16,7 +18,7 @@ export function mountCameraCapture(container, { onCapture }) {
   const takeBtn = document.createElement('button');
   takeBtn.type = 'button';
   const icon = document.createElement('img');
-  icon.src = 'icons/camera.svg';
+  icon.src = cameraIconUrl;
   icon.alt = '';
   const label = document.createElement('span');
   label.textContent = 'Take Photo';

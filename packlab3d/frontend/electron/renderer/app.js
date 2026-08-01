@@ -17,6 +17,25 @@ async function main() {
   const appRoot = document.getElementById('app');
   const loadingText = document.getElementById('loading-text');
   const loadingProgress = document.getElementById('loading-progress');
+  const startupStages = document.getElementById('startup-stages');
+
+  const stageRows = new Map();
+  function renderStartupStage(stage) {
+    if (!startupStages || !stage?.stage) return;
+    let row = stageRows.get(stage.stage);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'startup-stage';
+      row.innerHTML = '<span class="startup-stage__state"></span><span class="startup-stage__label"></span>';
+      startupStages.appendChild(row);
+      stageRows.set(stage.stage, row);
+    }
+    row.className = `startup-stage startup-stage--${stage.state}`;
+    row.querySelector('.startup-stage__state').textContent = stage.state;
+    const suffix = stage.elapsedMs !== undefined ? ` (${stage.elapsedMs} ms)` : '';
+    const detail = stage.message ? `: ${stage.message}` : '';
+    row.querySelector('.startup-stage__label').textContent = `${stage.stage}${detail}${suffix}`;
+  }
 
   const i18n = createI18n(window.packlab, 'en');
   i18n.applyToDom(document);
@@ -26,7 +45,36 @@ async function main() {
 
   startSplashAnimation({ logoDataUrl: window.packlab.logos.mainLarge || window.packlab.logos.main });
 
+  function setupDiagnostics() {
+    const diagnosticsDialog = document.getElementById('diagnostics-dialog');
+    const diagnosticsContent = document.getElementById('diagnostics-content');
+    const diagnosticsButton = document.getElementById('diagnostics-button');
+    const diagnosticsClose = document.getElementById('diagnostics-close');
+    const diagnosticsCopy = document.getElementById('diagnostics-copy');
+    const diagnosticsOpenLogs = document.getElementById('diagnostics-open-logs');
+
+    async function refreshDiagnostics() {
+      const diagnostics = await window.packlab.diagnostics.get();
+      diagnosticsContent.textContent = JSON.stringify(diagnostics, null, 2);
+      return diagnostics;
+    }
+
+    diagnosticsButton?.addEventListener('click', async () => {
+      await refreshDiagnostics();
+      diagnosticsDialog.showModal();
+    });
+    diagnosticsClose?.addEventListener('click', () => diagnosticsDialog.close());
+    diagnosticsCopy?.addEventListener('click', async () => {
+      const diagnostics = await refreshDiagnostics();
+      await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
+    });
+    diagnosticsOpenLogs?.addEventListener('click', () => window.packlab.diagnostics.openLogs());
+  }
+
+  setupDiagnostics();
+
   let backendFailed = false;
+  window.packlab.setStartupStageHandler(renderStartupStage);
   window.packlab.setBackendProgressHandler((percent) => {
     if (backendFailed) return;
     loadingText.textContent = `Loading… ${percent}%`;
@@ -36,10 +84,12 @@ async function main() {
     }
   });
 
-  const { ready, url } = await window.packlab.backend.waitReady();
+  const { ready, url, error } = await window.packlab.backend.waitReady();
   if (!ready) {
     backendFailed = true;
-    loadingText.textContent = 'Backend failed to start.';
+    loadingText.textContent = 'Backend failed to start. Open Diagnostics for details.';
+    renderStartupStage({ stage: 'Startup failed', state: 'error', message: error || 'See logs.' });
+    appRoot.classList.remove('app--hidden');
     return;
   }
 
@@ -78,6 +128,9 @@ async function main() {
     },
   });
 
+  window.addEventListener('packlab:viewer-ready', () => {
+    console.info('[startup] Three.js viewer ready');
+  });
   const viewer = mountThreeJsViewer(document.getElementById('threejs-viewer'), { i18n });
 
   const statusEl = document.getElementById('pipeline-status');

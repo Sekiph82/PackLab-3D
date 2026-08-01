@@ -6,8 +6,12 @@
   "author": "PackLab 3D",
   "private": true,
   "scripts": {
-    "start": "electron .",
-    "build:win": "electron-builder --win",
+    "start": "npm run build:renderer && electron .",
+    "build": "vite build",
+    "build:renderer": "vite build",
+    "build:win": "npm run build:renderer && electron-builder --config electron-builder.yml --win",
+    "verify:release": "node scripts/verify-release.js",
+    "smoke:packaged": "node scripts/smoke-packaged.js",
     "postinstall": "electron-builder install-app-deps",
     "test": "jest",
     "test:e2e": "playwright test"
@@ -20,36 +24,8 @@
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
     "jest": "^30.4.2",
-    "jest-environment-jsdom": "^30.4.1"
-  },
-  "dependencies": {
-    "three": "^0.166.1"
-  },
-  "build": {
-    "appId": "com.packlab3d.app",
-    "productName": "PackLab 3D",
-    "directories": {
-      "output": "../../release",
-      "buildResources": "build"
-    },
-    "files": [
-      "electron/**/*",
-      "ui/**/*",
-      "i18n/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "resources/backend",
-        "to": "backend",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
-    "win": {
-      "target": "dir",
-      "icon": "build/icon.png"
-    }
+    "jest-environment-jsdom": "^30.4.1",
+    "three": "^0.166.1",
+    "vite": "^5.4.0"
   }
 }

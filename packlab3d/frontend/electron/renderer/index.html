@@ -2,10 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <!-- 127.0.0.1:* (not a fixed :8000) because PACKLAB_BACKEND_PORT can override the port (see main.js — used by the E2E suite to dodge a port-8000 conflict).
-       script-src needs 'unsafe-inline' for the inline importmap below — this Electron's Chromium doesn't support external `<script type="importmap" src="...">`
-       (confirmed via E2E run: "External import maps are not yet supported."). Acceptable here since 100% of content is self-authored, loaded via file://, never remote. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' http://127.0.0.1:* data: blob: mediastream:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" />
+  <!-- 127.0.0.1:* because Electron selects an available backend port at startup. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' http://127.0.0.1:* data: blob: mediastream:; script-src 'self'; style-src 'self' 'unsafe-inline';" />
   <title>PackLab 3D</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -15,18 +13,20 @@
     <div class="splash-title">PackLab 3D</div>
     <div class="splash-slogan" data-i18n="splash.slogan">Precision Packaging Design.</div>
     <div id="loading-container">
-      <div id="loading-text">Loading… 0%</div>
+      <div id="loading-text">Loading... 0%</div>
       <div id="loading-bar"><div id="loading-progress"></div></div>
+      <div id="startup-stages" class="startup-stages"></div>
     </div>
   </div>
 
   <div id="app" class="app app--hidden">
     <header class="app-header">
       <div class="app-header__brand">
-        <img id="header-logo" src="" alt="" class="app-header__logo" />
+        <img id="header-logo" alt="" class="app-header__logo" />
         <span data-i18n="splash.appName">PackLab 3D</span>
       </div>
       <div class="app-header__right">
+        <button id="diagnostics-button" class="diagnostics-button" type="button">Diagnostics</button>
         <img src="icons/language.svg" alt="" class="icon" />
         <div id="language-switcher" class="language-switcher"></div>
       </div>
@@ -53,7 +53,6 @@
         <div id="camera-capture"></div>
         <h2><img src="icons/label.svg" alt="" class="icon" /> <span data-i18n="label.content.logo">Logo</span></h2>
         <div id="logo-uploader"></div>
-        <!-- static, not localized yet (known follow-up) — reused label.title here would collide with the left panel's "Label Design" heading -->
         <h2><img src="icons/label.svg" alt="" class="icon" /> Label Preview</h2>
         <img id="label-preview" class="label-preview" alt="" />
         <div id="pipeline-status" class="pipeline-status"></div>
@@ -63,16 +62,20 @@
         <div id="export-panel"></div>
       </section>
     </main>
+
+    <dialog id="diagnostics-dialog" class="diagnostics-dialog">
+      <div class="diagnostics-dialog__header">
+        <h2>Diagnostics</h2>
+        <button id="diagnostics-close" type="button">Close</button>
+      </div>
+      <pre id="diagnostics-content"></pre>
+      <div class="diagnostics-dialog__actions">
+        <button id="diagnostics-copy" type="button">Copy Diagnostics</button>
+        <button id="diagnostics-open-logs" type="button">Open Logs</button>
+      </div>
+    </dialog>
   </div>
 
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "../../node_modules/three/build/three.module.js",
-      "three/addons/": "../../node_modules/three/examples/jsm/"
-    }
-  }
-  </script>
   <script type="module" src="app.js"></script>
 </body>
 </html>

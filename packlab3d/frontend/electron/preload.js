@@ -8,7 +8,9 @@ const SUPPORTED_LANGUAGES = ['en', 'tr', 'sw'];
 // Real logo pack contents (verified — no upload.png/camera.png/icon-set/GLB
 // exist in this folder, only these 7 raster logo marks). Mapped to semantic
 // names so the rest of the app doesn't need to know the on-disk filenames.
-const LOGO_PACK_DIR = path.join(__dirname, '..', '..', '..', 'PackLab 3D logo pack');
+const DEV_LOGO_PACK_DIR = path.join(__dirname, '..', '..', '..', 'PackLab 3D logo pack');
+const PACKAGED_LOGO_PACK_DIR = path.join(process.resourcesPath || '', 'logo-pack');
+const LOGO_PACK_DIR = fs.existsSync(PACKAGED_LOGO_PACK_DIR) ? PACKAGED_LOGO_PACK_DIR : DEV_LOGO_PACK_DIR;
 const LOGO_FILES = {
   main: 'main logo.png',
   mainLarge: 'main logo 512 512 px.png',
@@ -43,10 +45,19 @@ ipcRenderer.on('backend:progress', (_event, percent) => {
   if (backendProgressHandler) backendProgressHandler(percent);
 });
 
+let startupStageHandler = null;
+ipcRenderer.on('startup:stage', (_event, stage) => {
+  if (startupStageHandler) startupStageHandler(stage);
+});
+
 contextBridge.exposeInMainWorld('packlab', {
   backend: {
     getUrl: () => ipcRenderer.invoke('backend:get-url'),
     waitReady: () => ipcRenderer.invoke('backend:wait-ready'),
+  },
+  diagnostics: {
+    get: () => ipcRenderer.invoke('diagnostics:get'),
+    openLogs: () => ipcRenderer.invoke('diagnostics:open-logs'),
   },
   files: {
     save: (defaultName, arrayBuffer) =>
@@ -65,5 +76,8 @@ contextBridge.exposeInMainWorld('packlab', {
   // could). This setter is the working equivalent.
   setBackendProgressHandler: (fn) => {
     backendProgressHandler = fn;
+  },
+  setStartupStageHandler: (fn) => {
+    startupStageHandler = fn;
   },
 });

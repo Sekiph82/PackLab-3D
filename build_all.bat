@@ -26,6 +26,16 @@ if not exist "%ROOT%release\PackLab3D.exe" (
     exit /b 1
 )
 
+echo ===== PackLab 3D build: packaged smoke test =====
+pushd "%ROOT%packlab3d\frontend"
+call npm run smoke:packaged
+if errorlevel 1 (
+    popd
+    echo [build_all] Packaged smoke test failed.
+    exit /b 1
+)
+popd
+
 echo ===== PackLab 3D build: desktop shortcut =====
 powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%create_shortcut.ps1"
 if errorlevel 1 (

@@ -22,7 +22,6 @@ exports[`4-panel app grid markup matches snapshot (from the real index.html) 1`]
         <div id="camera-capture"></div>
         <h2><img src="icons/label.svg" alt="" class="icon"> <span data-i18n="label.content.logo">Logo</span></h2>
         <div id="logo-uploader"></div>
-        <!-- static, not localized yet (known follow-up) — reused label.title here would collide with the left panel's "Label Design" heading -->
         <h2><img src="icons/label.svg" alt="" class="icon"> Label Preview</h2>
         <img id="label-preview" class="label-preview" alt="">
         <div id="pipeline-status" class="pipeline-status"></div>
@@ -43,10 +42,11 @@ exports[`LanguageSwitcher rendered markup matches snapshot 1`] = `"<button type=
 exports[`app header (brand + language switcher mount point) matches snapshot 1`] = `
 "<header class="app-header">
       <div class="app-header__brand">
-        <img id="header-logo" src="" alt="" class="app-header__logo">
+        <img id="header-logo" alt="" class="app-header__logo">
         <span data-i18n="splash.appName">PackLab 3D</span>
       </div>
       <div class="app-header__right">
+        <button id="diagnostics-button" class="diagnostics-button" type="button">Diagnostics</button>
         <img src="icons/language.svg" alt="" class="icon">
         <div id="language-switcher" class="language-switcher"></div>
       </div>
@@ -59,8 +59,9 @@ exports[`splash screen markup matches snapshot (from the real index.html) 1`] = 
     <div class="splash-title">PackLab 3D</div>
     <div class="splash-slogan" data-i18n="splash.slogan">Precision Packaging Design.</div>
     <div id="loading-container">
-      <div id="loading-text">Loading… 0%</div>
+      <div id="loading-text">Loading... 0%</div>
       <div id="loading-bar"><div id="loading-progress"></div></div>
+      <div id="startup-stages" class="startup-stages"></div>
     </div>
   </div>"
 `;
