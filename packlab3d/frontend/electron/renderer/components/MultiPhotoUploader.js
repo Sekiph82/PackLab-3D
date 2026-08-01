@@ -67,6 +67,8 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     uploaded: false,
     activeJobId: null,
     report: null,
+    reconstructionMode: 'auto',
+    capabilities: null,
   };
 
   const root = document.createElement('div');
@@ -82,11 +84,35 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
   const actions = document.createElement('div');
   actions.className = 'multi-photo__actions';
   const addButton = button('Add Photos', () => input.click());
+  const workspaceButton = button('Open Photo Workspace', () => grid.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
   const clearButton = button('Remove All', removeAll);
   const autoAssignButton = button('Auto-Assign Views', autoAssignViews);
   const analyzeButton = button('Review Photo Quality', () => runAnalysis().catch(showError));
-  const reconstructButton = button('Continue to Reconstruction', () => runFullReconstruction().catch(showError));
-  actions.append(addButton, clearButton, autoAssignButton, analyzeButton, reconstructButton);
+  const reconstructButton = button('Create Unified Design', () => runFullReconstruction().catch(showError));
+  actions.append(addButton, workspaceButton, clearButton, autoAssignButton, analyzeButton, reconstructButton);
+
+  const modeField = document.createElement('label');
+  modeField.className = 'multi-photo__mode';
+  const modeLabel = document.createElement('span');
+  modeLabel.textContent = 'Reconstruction Mode';
+  const modeSelect = document.createElement('select');
+  [
+    ['auto', 'Auto'],
+    ['multiview_parametric', 'Multi-View Parametric'],
+    ['basic_parametric', 'Basic Parametric'],
+    ['experimental_ai_reference', 'Experimental AI Reference Mesh'],
+  ].forEach(([value, label]) => {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    modeSelect.appendChild(option);
+  });
+  modeSelect.value = state.reconstructionMode;
+  modeSelect.addEventListener('change', () => {
+    state.reconstructionMode = modeSelect.value;
+    syncStore();
+  });
+  modeField.append(modeLabel, modeSelect);
 
   const counter = document.createElement('div');
   counter.className = 'multi-photo__counter';
@@ -100,6 +126,9 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
   const progress = document.createElement('div');
   progress.className = 'multi-photo__progress';
   progress.innerHTML = '<div class="multi-photo__progress-label">No reconstruction job running.</div><div class="multi-photo__progress-bar"><div></div></div>';
+
+  const providerStatus = document.createElement('div');
+  providerStatus.className = 'multi-photo__provider-status';
 
   const report = document.createElement('div');
   report.className = 'multi-photo__report';
@@ -116,9 +145,19 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     addFiles(event.dataTransfer.files);
   });
 
-  root.append(input, actions, counter, error, grid, progress, report);
+  root.append(input, actions, modeField, counter, error, providerStatus, grid, progress, report);
   container.appendChild(root);
   render();
+
+  api.getCapabilities?.()
+    .then((capabilities) => {
+      state.capabilities = capabilities;
+      render();
+    })
+    .catch(() => {
+      state.capabilities = null;
+      render();
+    });
 
   function button(label, onClick) {
     const btn = document.createElement('button');
@@ -141,6 +180,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
   async function addFiles(files) {
     clearError();
     const validation = validatePhotoSelection(state.photos, files);
+    input.value = '';
     if (!validation.ok) {
       showError(validation.error);
       return;
@@ -244,6 +284,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
           segmentation: photo.segmentation,
         })),
         report: state.report,
+        reconstructionMode: state.reconstructionMode,
       },
       pipeline: { ...(current.pipeline || {}), ...(extra.pipeline || {}) },
     });
@@ -324,6 +365,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     const job = await api.startReconstruction({
       projectId: state.projectId,
       packageType: measurement.packagingType || 'bottle',
+      reconstructionMode: state.reconstructionMode,
       measurements: {
         heightMm: measurement.heightMm,
         widthMm: measurement.widthMm,
@@ -334,11 +376,21 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     });
     const done = await waitForJob(job, 'Unified reconstruction');
     state.report = done.result?.report || null;
+    const referenceMesh = await api.getProjectAsset({ projectId: state.projectId, assetName: 'referenceMesh' });
+    const cleanMesh = await api.getProjectAsset({ projectId: state.projectId, assetName: 'cleanMesh' });
     const glb = await api.getProjectAsset({ projectId: state.projectId, assetName: 'finalMesh' });
     const drawing = await api.getProjectAsset({ projectId: state.projectId, assetName: 'drawingPackage' });
     if (viewer) await viewer.loadGlbArrayBuffer(glb.arrayBuffer);
-    syncStore({ pipeline: { glb: glb.arrayBuffer, drawingZip: drawing.arrayBuffer, reconstructionReport: state.report } });
-    setStatus(reconstructionSummary(state.report));
+    syncStore({
+      pipeline: {
+        generated: referenceMesh.arrayBuffer,
+        cleaned: cleanMesh.arrayBuffer,
+        glb: glb.arrayBuffer,
+        drawingZip: drawing.arrayBuffer,
+        reconstructionReport: state.report,
+      },
+    });
+    setStatus(`Unified design generated using parametric fallback.\n${reconstructionSummary(state.report)}`);
     render();
   }
 
@@ -360,8 +412,12 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
 
   function reconstructionSummary(item) {
     if (!item) return 'Unified reconstruction complete.';
+    const fallbackUsed = item.trueMultiViewReconstruction === false || /fallback|parametric/i.test(item.method || '');
     return [
       `Unified reconstruction complete.`,
+      `Provider used: ${providerLabel(item.method)}`,
+      `AI model installed: ${aiInstalled() ? 'Yes' : 'No'}`,
+      `Fallback used: ${fallbackUsed ? 'Yes' : 'No'}`,
       `Method: ${item.method}`,
       `Photos used: ${(item.photosUsed || []).length}`,
       `Photos excluded: ${(item.photosExcluded || []).length}`,
@@ -371,7 +427,8 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
   }
 
   function render() {
-    counter.textContent = `${state.photos.length} / ${MAX_PHOTOS} photos uploaded`;
+    counter.textContent = `Photos: ${state.photos.length} / ${MAX_PHOTOS}`;
+    renderProviderStatus();
     grid.innerHTML = '';
     state.photos.forEach((photo, index) => grid.appendChild(renderCard(photo, index)));
     if (state.report) {
@@ -379,6 +436,30 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     } else {
       report.textContent = '';
     }
+  }
+
+  function renderProviderStatus() {
+    const torch = state.capabilities?.torch;
+    const triposr = state.capabilities?.triposr;
+    providerStatus.textContent = [
+      'AI Reconstruction',
+      `TripoSR: ${triposr?.available ? 'Installed' : 'Not installed'}`,
+      `Torch: ${torch?.available ? 'Installed' : 'Not installed'}`,
+      'Model weights: Not installed',
+      `CUDA: ${state.capabilities?.cuda?.available ? 'Available' : 'Unavailable'}`,
+      'Standard unified design: Available',
+      'Multi-view parametric fallback: Available',
+    ].join(' | ');
+  }
+
+  function aiInstalled() {
+    return Boolean(state.capabilities?.triposr?.available);
+  }
+
+  function providerLabel(method) {
+    if (/parametric-multiview|multiview.*parametric/i.test(method || '')) return 'Multi-View Parametric';
+    if (/single-view|basic/i.test(method || '')) return 'Basic Parametric';
+    return method || 'Auto';
   }
 
   function renderCard(photo, index) {

@@ -546,6 +546,33 @@ html, body {
   font-weight: 700;
 }
 
+.multi-photo__mode {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #3a4a5a;
+}
+
+.multi-photo__mode select {
+  width: 100%;
+  border: 1px solid #d3dbe5;
+  border-radius: 6px;
+  padding: 7px;
+  background: var(--pl-white);
+}
+
+.multi-photo__provider-status {
+  border: 1px solid #dce7f3;
+  background: #f7fbff;
+  color: #234260;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  margin-bottom: 8px;
+}
+
 .multi-photo__grid {
   display: grid;
   gap: 8px;

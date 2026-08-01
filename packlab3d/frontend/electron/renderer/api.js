@@ -109,12 +109,10 @@ export function createApiClient(baseUrl) {
       return { arrayBuffer: await res.arrayBuffer(), headers: res.headers };
     },
 
-    async generateMesh({ file, backend = 'triposr', language = 'en' }) {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('backend', backend);
-      fd.append('language', language);
-      return fileResult('/generate-mesh', fd);
+    async getCapabilities({ refresh = false } = {}) {
+      const res = await fetch(`${baseUrl}/capabilities${refresh ? '?refresh=true' : ''}`);
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
     },
 
     async scaleMesh({ file, dimensions = {}, uniform = false, language = 'en' }) {

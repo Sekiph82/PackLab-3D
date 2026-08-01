@@ -14,6 +14,12 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
     return arrayBufferToFile(latest, fallbackName);
   }
 
+  function requireUnifiedMesh() {
+    const mesh = currentMeshFile();
+    if (!mesh) throw new Error('Create a unified design from the photo set first.');
+    return mesh;
+  }
+
   function setPipeline(patch) {
     const current = store.getState().pipeline || {};
     store.setState({ pipeline: { ...current, ...patch } });
@@ -63,20 +69,8 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
     bar.className = 'export-bar';
 
     bar.appendChild(
-      makeButton('generateMesh', 'form.generate', 'generate-mesh', async () => {
-        const { photo } = store.getState();
-        if (!photo) throw new Error('Upload a photo first.');
-        const result = await api.generateMesh({ file: photo, language: i18n.language });
-        setPipeline({ generated: result.arrayBuffer });
-        await loadIntoViewer(result.arrayBuffer);
-        return result;
-      })
-    );
-
-    bar.appendChild(
       makeButton('scaleMesh', 'nav.measurements', 'scale-mesh', async () => {
-        const mesh = currentMeshFile();
-        if (!mesh) throw new Error('Generate a mesh first.');
+        const mesh = requireUnifiedMesh();
         const m = store.getState().measurement || {};
         const result = await api.scaleMesh({
           file: mesh,
@@ -97,8 +91,7 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
 
     bar.appendChild(
       makeButton('cleanupMesh', 'common.ok', 'cleanup-mesh', async () => {
-        const mesh = currentMeshFile();
-        if (!mesh) throw new Error('Generate a mesh first.');
+        const mesh = requireUnifiedMesh();
         const result = await api.cleanupMesh({ file: mesh, language: i18n.language });
         setPipeline({ cleaned: result.arrayBuffer });
         await loadIntoViewer(result.arrayBuffer);
@@ -108,8 +101,7 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
 
     bar.appendChild(
       makeButton('wallThickness', 'form.material', 'apply-wall-thickness', async () => {
-        const mesh = currentMeshFile();
-        if (!mesh) throw new Error('Generate a mesh first.');
+        const mesh = requireUnifiedMesh();
         const m = store.getState().measurement || {};
         const l = store.getState().label || {};
         const result = await api.applyWallThickness({
@@ -126,8 +118,7 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
 
     bar.appendChild(
       makeButton('generate2d', 'drawing.title', 'generate-2d', async () => {
-        const mesh = currentMeshFile();
-        if (!mesh) throw new Error('Generate a mesh first.');
+        const mesh = requireUnifiedMesh();
         const l = store.getState().label || {};
         const result = await api.generate2d({
           file: mesh,
@@ -135,7 +126,7 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
           language: i18n.language,
         });
         setPipeline({ drawingZip: result.arrayBuffer });
-        if (window.packlab) await window.packlab.files.save('technical_drawing.zip', result.arrayBuffer);
+        if (window.packlab) window.packlab.files.save('technical_drawing.zip', result.arrayBuffer).catch(() => {});
         return result;
       })
     );
@@ -175,7 +166,7 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
       makeButton('applyLabelTo3d', 'export.title', 'apply-label-to-3d', async () => {
         const mesh = currentMeshFile();
         const pipeline = store.getState().pipeline || {};
-        if (!mesh || !pipeline.labelPngBytes) throw new Error('Generate a mesh and a label first.');
+        if (!mesh || !pipeline.labelPngBytes) throw new Error('Create a unified design and generate a label first.');
         const m = store.getState().measurement || {};
         const labelPngBlob = new Blob([pipeline.labelPngBytes], { type: 'image/png' });
         const result = await api.applyLabelTo3d({
@@ -186,7 +177,7 @@ export function mountExportPanel(container, { i18n, store, api, viewer, setStatu
         });
         setPipeline({ glb: result.arrayBuffer });
         await loadIntoViewer(result.arrayBuffer);
-        if (window.packlab) await window.packlab.files.save('labeled_model.glb', result.arrayBuffer);
+        if (window.packlab) window.packlab.files.save('labeled_model.glb', result.arrayBuffer).catch(() => {});
         return result;
       })
     );

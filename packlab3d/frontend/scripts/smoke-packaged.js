@@ -162,29 +162,53 @@ async function runScenario(name, index) {
       await page.waitForSelector('#diagnostics-dialog[open]', { timeout: 5000 });
       await page.keyboard.press('Escape').catch(() => {});
 
-      if (name === 'multiphoto') {
+      if (['multiphoto', 'primary-unified', 'one-photo-unified'].includes(name)) {
         const screenshotDir = process.env.PACKLAB_MULTIPHOTO_SCREENSHOT_DIR || '';
         const tenFiles = createSmokePngFiles(10);
-        await page.setInputFiles('input.multi-photo__input', tenFiles);
-        await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 10, null, { timeout: 15000 });
-        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `multi-photo-upload-${Date.now()}.png`), fullPage: true });
+        if (name === 'primary-unified') {
+          await page.setInputFiles('input.multi-photo__input', tenFiles.slice(0, 3));
+          await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 3, null, { timeout: 15000 });
+          await page.setInputFiles('input.multi-photo__input', tenFiles.slice(3, 8));
+          await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 8, null, { timeout: 15000 });
+          await page.setInputFiles('input.multi-photo__input', tenFiles.slice(8, 10));
+        } else if (name === 'one-photo-unified') {
+          await page.setInputFiles('input.multi-photo__input', tenFiles.slice(0, 1));
+        } else {
+          await page.setInputFiles('input.multi-photo__input', tenFiles);
+        }
+        const expectedInitialCount = name === 'one-photo-unified' ? 1 : 10;
+        await page.waitForFunction((count) => document.querySelectorAll('.photo-card').length === count, expectedInitialCount, { timeout: 15000 });
+        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase4-10-photo-upload-${Date.now()}.png`), fullPage: true });
         const counterText = await page.locator('.multi-photo__counter').textContent();
-        if (!counterText.includes('10 / 10')) throw new Error(`Expected 10-photo counter, got: ${counterText}`);
-        await page.locator('.multi-photo__actions button', { hasText: 'Remove All' }).click();
-        await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 0, null, { timeout: 5000 });
+        if (!counterText.includes(`${expectedInitialCount} / 10`)) throw new Error(`Expected ${expectedInitialCount}-photo counter, got: ${counterText}`);
+        if (name !== 'one-photo-unified') {
+          const thumbnailCount = await page.locator('.photo-card img').count();
+          if (thumbnailCount !== 10) throw new Error(`Expected 10 thumbnails, got ${thumbnailCount}`);
+        }
 
-        const fourFiles = createSmokePngFiles(4);
-        await page.setInputFiles('input.multi-photo__input', fourFiles);
-        await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 4, null, { timeout: 15000 });
+        if (name === 'multiphoto' || name === 'primary-unified') {
+          await page.locator('.multi-photo__actions button', { hasText: 'Remove All' }).click();
+          await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 0, null, { timeout: 5000 });
+        }
+
+        const reconstructionFiles = name === 'one-photo-unified' ? createSmokePngFiles(1) : createSmokePngFiles(4);
+        if (name !== 'one-photo-unified') {
+          await page.setInputFiles('input.multi-photo__input', reconstructionFiles);
+        }
+        await page.waitForFunction((count) => document.querySelectorAll('.photo-card').length === count, reconstructionFiles.length, { timeout: 15000 });
         await page.locator('.photo-card select').nth(0).selectOption('front');
-        await page.locator('.photo-card select').nth(1).selectOption('left');
-        await page.locator('.photo-card select').nth(2).selectOption('back');
-        await page.locator('.photo-card select').nth(3).selectOption('right');
-        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `multi-photo-review-${Date.now()}.png`), fullPage: true });
-        await page.locator('.multi-photo__actions button', { hasText: 'Continue to Reconstruction' }).click();
+        if (reconstructionFiles.length > 1) {
+          await page.locator('.photo-card select').nth(1).selectOption('left');
+          await page.locator('.photo-card select').nth(2).selectOption('back');
+          await page.locator('.photo-card select').nth(3).selectOption('right');
+        }
+        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase4-provider-status-${Date.now()}.png`), fullPage: true });
+        const createButtonCount = await page.locator('.multi-photo__actions button', { hasText: 'Create Unified Design' }).count();
+        if (createButtonCount !== 1) throw new Error(`Expected one Create Unified Design button, got ${createButtonCount}`);
+        await page.locator('.multi-photo__actions button', { hasText: 'Create Unified Design' }).click();
         try {
           await page.waitForFunction(
-            () => (document.querySelector('.multi-photo__report')?.textContent || '').includes('parametric-multiview-silhouette-fit'),
+            () => (document.querySelector('.multi-photo__report')?.textContent || '').includes('Fallback used: Yes'),
             null,
             { timeout: 90000 }
           );
@@ -197,8 +221,12 @@ async function runScenario(name, index) {
           throw new Error(`Multi-photo reconstruction report did not appear: ${JSON.stringify(details)}`);
         }
         const reportText = await page.locator('.multi-photo__report').textContent();
-        if (!reportText.includes('Photos used: 4')) throw new Error(`Expected unified 4-photo report, got: ${reportText}`);
-        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `multi-view-result-${Date.now()}.png`), fullPage: true });
+        if (!reportText.includes(`Photos used: ${reconstructionFiles.length}`)) throw new Error(`Expected unified ${reconstructionFiles.length}-photo report, got: ${reportText}`);
+        if (!reportText.includes('Provider used:')) throw new Error(`Provider status missing from report: ${reportText}`);
+        const pipelineStatus = await page.locator('#pipeline-status').textContent();
+        if (pipelineStatus.includes('generate-mesh FAILED')) throw new Error(`Legacy generate-mesh failure leaked into primary workflow: ${pipelineStatus}`);
+        if (!pipelineStatus.includes('Unified design generated using parametric fallback')) throw new Error(`Expected fallback success status, got: ${pipelineStatus}`);
+        if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase4-unified-design-fallback-${Date.now()}.png`), fullPage: true });
       }
     }
 

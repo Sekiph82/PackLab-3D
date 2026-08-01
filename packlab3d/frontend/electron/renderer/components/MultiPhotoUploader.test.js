@@ -62,6 +62,11 @@ function fakeApi() {
           },
     })),
     getProjectAsset: jest.fn(async () => ({ arrayBuffer: new ArrayBuffer(8), headers: new Headers() })),
+    getCapabilities: jest.fn(async () => ({
+      triposr: { available: false },
+      torch: { available: false },
+      cuda: { available: false },
+    })),
   };
 }
 
@@ -92,7 +97,8 @@ test('component renders cards, allows include state, view assignment, reordering
 
   await uploader.addFiles([file('front.png'), file('side.png')]);
   expect(document.querySelectorAll('.photo-card')).toHaveLength(2);
-  expect(document.querySelector('.multi-photo__counter').textContent).toBe('2 / 10 photos uploaded');
+  expect(document.querySelector('.multi-photo__counter').textContent).toBe('Photos: 2 / 10');
+  expect([...document.querySelectorAll('.multi-photo__actions button')].some((btn) => btn.textContent === 'Create Unified Design')).toBe(true);
 
   const firstSelect = document.querySelector('.photo-card select');
   firstSelect.value = 'right';
@@ -112,14 +118,33 @@ test('component renders cards, allows include state, view assignment, reordering
   expect(URL.revokeObjectURL).toHaveBeenCalled();
 });
 
+test('component accumulates multiple selections up to ten photos', async () => {
+  document.body.innerHTML = '<div id="root"></div>';
+  const uploader = mountMultiPhotoUploader(document.getElementById('root'), {
+    i18n: fakeI18n(),
+    store: fakeStore(),
+    api: fakeApi(),
+    viewer: null,
+    setStatus: jest.fn(),
+  });
+
+  await uploader.addFiles(Array.from({ length: 3 }, (_item, index) => file(`first-${index}.png`)));
+  await uploader.addFiles(Array.from({ length: 5 }, (_item, index) => file(`second-${index}.png`)));
+  await uploader.addFiles(Array.from({ length: 2 }, (_item, index) => file(`third-${index}.png`)));
+
+  expect(document.querySelectorAll('.photo-card')).toHaveLength(10);
+  expect(document.querySelector('.multi-photo__counter').textContent).toBe('Photos: 10 / 10');
+});
+
 test('component runs one unified reconstruction job and loads one final GLB', async () => {
   document.body.innerHTML = '<div id="root"></div>';
   const api = fakeApi();
   const viewer = { loadGlbArrayBuffer: jest.fn() };
   const status = jest.fn();
+  const store = fakeStore();
   const uploader = mountMultiPhotoUploader(document.getElementById('root'), {
     i18n: fakeI18n(),
-    store: fakeStore(),
+    store,
     api,
     viewer,
     setStatus: status,
@@ -130,7 +155,14 @@ test('component runs one unified reconstruction job and loads one final GLB', as
 
   expect(api.uploadProjectPhotos).toHaveBeenCalledTimes(1);
   expect(api.startReconstruction).toHaveBeenCalledTimes(1);
+  expect(api.startReconstruction).toHaveBeenCalledWith(expect.objectContaining({ reconstructionMode: 'auto' }));
+  expect(api.getProjectAsset).toHaveBeenCalledWith({ projectId: 'project-1', assetName: 'referenceMesh' });
+  expect(api.getProjectAsset).toHaveBeenCalledWith({ projectId: 'project-1', assetName: 'cleanMesh' });
   expect(viewer.loadGlbArrayBuffer).toHaveBeenCalledTimes(1);
+  expect(store.getState().pipeline.generated).toBeInstanceOf(ArrayBuffer);
+  expect(store.getState().pipeline.cleaned).toBeInstanceOf(ArrayBuffer);
+  expect(status).not.toHaveBeenCalledWith(expect.stringContaining('FAILED'));
+  expect(status).toHaveBeenLastCalledWith(expect.stringContaining('Unified design generated using parametric fallback'));
   expect(status).toHaveBeenLastCalledWith(expect.stringContaining('parametric-multiview-silhouette-fit'));
 });
 
