@@ -209,6 +209,14 @@ async function runScenario(name, index) {
         'photo-geometry-landmark',
         'photo-geometry-reconstruction',
         'photo-geometry-reopen',
+        'profile-editor-real',
+        'section-editor-real',
+        'control-cage-transform',
+        'control-cage-box-select',
+        'control-cage-pin-lock',
+        'control-cage-falloff',
+        'editor-camera-history-reopen',
+        'linked-2d-editor-proof',
       ];
       if (['multiphoto', 'primary-unified', 'one-photo-unified', 'label-mapping', 'label-timeout', 'native-reconstruction', 'editable-3d', 'linked-2d', ...phase7Scenarios].includes(name)) {
         const screenshotDir = process.env.PACKLAB_MULTIPHOTO_SCREENSHOT_DIR || '';
@@ -290,7 +298,7 @@ async function runScenario(name, index) {
           }
         }
 
-        if (name === 'editable-3d' || name === 'linked-2d') {
+        if (name === 'editable-3d' || name === 'linked-2d' || name === 'profile-editor-real' || name === 'linked-2d-editor-proof' || name === 'editor-camera-history-reopen') {
           await page.waitForSelector('.native-editor', { timeout: 10000 });
           await page.waitForSelector('.profile-editor__canvas [data-profile-point-id]', { timeout: 10000 });
           await dragLocator(page, page.locator('.profile-editor__canvas [data-profile-point-id]').nth(1), 18, -8);
@@ -338,7 +346,7 @@ async function runScenario(name, index) {
               { timeout: 60000 }
             );
           }
-          if (name === 'advanced-section-editor' || name === 'advanced-profile-editor') {
+          if (name === 'advanced-section-editor' || name === 'advanced-profile-editor' || name === 'section-editor-real') {
             if (name === 'advanced-profile-editor') await runProfileEdit();
             else await runSectionEdit();
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-section-editor-${Date.now()}.png`), fullPage: true });
@@ -353,6 +361,32 @@ async function runScenario(name, index) {
               { timeout: 60000 }
             );
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-control-cage-${Date.now()}.png`), fullPage: true });
+          }
+          if (['control-cage-transform', 'control-cage-box-select', 'control-cage-pin-lock', 'control-cage-falloff'].includes(name)) {
+            await page.locator('.native-editor').scrollIntoViewIfNeeded();
+            await page.waitForSelector('#threejs-viewer canvas[data-cage-node-count]', { timeout: 10000 });
+            const canvas = page.locator('#threejs-viewer canvas[data-cage-node-count]');
+            const box = await canvas.boundingBox();
+            if (!box) throw new Error('Three.js cage canvas is not visible');
+            const beforeCount = await canvas.getAttribute('data-cage-selected-count');
+            if (name === 'control-cage-box-select') {
+              await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.25);
+              await page.mouse.down();
+              await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.75, { steps: 6 });
+              await page.mouse.up();
+            } else {
+              await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
+              await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+              await page.mouse.down();
+              await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.48, { steps: 6 });
+              await page.mouse.up();
+            }
+            const afterCount = await canvas.getAttribute('data-cage-selected-count');
+            if (name === 'control-cage-box-select' && beforeCount === afterCount && afterCount === '0') throw new Error('Box selection did not select cage nodes');
+            if (name === 'control-cage-pin-lock') await clickEditorButton(page, 'Control Cage Editor', 'Pin/Unpin');
+            if (name === 'control-cage-falloff') await clickEditorButton(page, 'Control Cage Editor', 'Falloff');
+            await clickEditorButton(page, 'Control Cage Editor', 'Apply');
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-2b-${name}-${Date.now()}.png`), fullPage: true });
           }
           if (name === 'dimension-editor') {
             await page.waitForSelector('.drawing-workspace__canvas [data-entity-kind="dimension"]', { timeout: 10000, state: 'attached' });

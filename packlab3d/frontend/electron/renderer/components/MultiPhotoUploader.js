@@ -92,6 +92,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     recovery: null,
     geometryWorkspace: null,
     geometryConflict: null,
+    editorState: null,
   };
 
   const root = document.createElement('div');
@@ -860,6 +861,15 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
       const glb = await api.getProjectAsset({ projectId: state.projectId, assetName: 'finalMesh' });
       if (viewer) await viewer.loadGlbArrayBuffer(glb.arrayBuffer);
       state.editableModel = result;
+      state.editorState = {
+        ...(state.editorState || result.editable3DState?.editorState || {}),
+        version: 3,
+        activeEditor: edits.sourceEditor || state.editorState?.activeEditor || null,
+        modelRevision: result.modelRevision,
+        cageState: edits.sourceEditor === 'control-cage' ? { ...(state.editorState?.cageState || {}), nodes: edits.cageNodes || [], selectedNodeIds: edits.selectedNodeIds || [] } : (state.editorState?.cageState || {}),
+        history: { ...(state.editorState?.history || { entries: [], cursor: 0, maxEntries: 100 }), cursor: (state.editorState?.history?.cursor || 0) + 1 },
+      };
+      try { await api.updateEditorState?.({ projectId: state.projectId, editorState: { ...state.editorState, cameraState: viewer?.getCameraState?.() || state.editorState.cameraState } }); } catch (stateError) { setStatus(`${successMessage} ${t('phase7.persistence.warning', 'Editor state could not be fully persisted.')}`); }
       state.report = { ...state.report, reconstructionModel: result.reconstructionModel };
       syncStore({ pipeline: { ...(store.getState().pipeline || {}), glb: glb.arrayBuffer, editableModel: result } });
       setStatus(successMessage);

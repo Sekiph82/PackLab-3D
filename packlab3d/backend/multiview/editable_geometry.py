@@ -8,10 +8,15 @@ from __future__ import annotations
 
 import copy
 import math
+import hashlib
+import json
 from typing import Iterable
 
 
 MODEL_REVISION = "modelRevision"
+CAGE_TOPOLOGY_VERSION = 2
+DEFAULT_CAGE_LAYERS = 7
+DEFAULT_CAGE_RINGS = 8
 
 
 class GeometryValidationError(ValueError):
@@ -43,7 +48,121 @@ def ensure_editable_model(model: dict) -> dict:
         node.setdefault("lockedAxes", [])
         node.setdefault("mirrorNodeIds", [])
         node.setdefault("region", node.get("group", "body"))
+    ensure_cage_lattice(model)
     return model
+
+
+def ensure_cage_lattice(model: dict, layer_count: int = DEFAULT_CAGE_LAYERS, ring_count: int = DEFAULT_CAGE_RINGS) -> dict:
+    """Add deterministic generic lattice metadata without replacing existing user nodes."""
+    cage = model.setdefault("controlCage", {})
+    cage.setdefault("topologyVersion", CAGE_TOPOLOGY_VERSION)
+    cage.setdefault("layerCount", layer_count)
+    cage.setdefault("ringCount", ring_count)
+    cage.setdefault("symmetry", {"x": True, "z": True})
+    cage.setdefault("falloff", {"mode": "medium", "customRadius": None})
+    cage.setdefault("selectedNodeIds", [])
+    if cage.get("nodes"):
+        for node in cage["nodes"]:
+            node.setdefault("layerIndex", round(float(node.get("heightRatio", 0.5)) * (int(cage["layerCount"]) - 1)))
+            node.setdefault("ringIndex", 0)
+            node.setdefault("revision", 1)
+        return model
+    sections = sorted(model.get("crossSections", []), key=lambda item: float(item.get("heightRatio", 0.0)))
+    height = max(float(model.get("heightMm", 1.0)), 1.0)
+    max_width = max([float(item.get("widthMm", 1.0)) for item in sections] or [1.0])
+    max_depth = max([float(item.get("depthMm", 1.0)) for item in sections] or [1.0])
+    nodes = []
+    for layer in range(layer_count):
+        ratio = layer / max(layer_count - 1, 1)
+        section = min(sections, key=lambda item: abs(float(item.get("heightRatio", 0.5)) - ratio)) if sections else {}
+        width = float(section.get("widthMm", max_width))
+        depth = float(section.get("depthMm", max_depth))
+        y = ratio * height
+        region = "base" if ratio < 0.15 else "cap" if ratio > 0.86 else "lower-body" if ratio < 0.35 else "upper-body" if ratio > 0.68 else "mid-body"
+        for ring in range(ring_count):
+            angle = (2.0 * math.pi * ring) / ring_count
+            position = [round((width * 0.5) * math.cos(angle), 4), round(y, 4), round((depth * 0.5) * math.sin(angle), 4)]
+            nodes.append({
+                "id": f"cage-layer-{layer:02d}-ring-{ring:02d}",
+                "layerIndex": layer,
+                "ringIndex": ring,
+                "restPositionMm": position[:],
+                "positionMm": position[:],
+                "pinned": False,
+                "lockedAxes": [],
+                "region": region,
+                "mirrorNodeIds": [],
+                "revision": 1,
+            })
+    edges = []
+    for layer in range(layer_count):
+        for ring in range(ring_count):
+            current = f"cage-layer-{layer:02d}-ring-{ring:02d}"
+            next_ring = f"cage-layer-{layer:02d}-ring-{(ring + 1) % ring_count:02d}"
+            edges.append({"id": f"cage-ring-{layer:02d}-{ring:02d}-{(ring + 1) % ring_count:02d}", "from": current, "to": next_ring})
+            if layer < layer_count - 1:
+                above = f"cage-layer-{layer + 1:02d}-ring-{ring:02d}"
+                edges.append({"id": f"cage-vertical-{layer:02d}-{ring:02d}", "from": current, "to": above})
+    cage["nodes"] = nodes
+    cage["edges"] = edges
+    for node in nodes:
+        mirror_ring = (-node["ringIndex"]) % ring_count
+        node["mirrorNodeIds"] = [f"cage-layer-{node['layerIndex']:02d}-ring-{mirror_ring:02d}"] if mirror_ring != node["ringIndex"] else []
+    return model
+
+
+def cage_topology_checksum(cage: dict) -> str:
+    payload = {"topologyVersion": cage.get("topologyVersion"), "nodes": [node.get("id") for node in cage.get("nodes", [])], "edges": cage.get("edges", [])}
+    return "sha256:" + hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def build_cage_bindings(vertices: Iterable[Iterable[float]], cage: dict, model_revision: int = 1) -> dict:
+    """Build deterministic vertical/angular lattice bindings for mesh vertices."""
+    nodes = cage.get("nodes", [])
+    layers = max(int(cage.get("layerCount", DEFAULT_CAGE_LAYERS)), 2)
+    rings = max(int(cage.get("ringCount", DEFAULT_CAGE_RINGS)), 3)
+    by_layer = {layer: [node for node in nodes if int(node.get("layerIndex", 0)) == layer] for layer in range(layers)}
+    vertex_values = [[float(value) for value in list(vertex)[:3]] for vertex in vertices]
+    bindings = []
+    max_radius = max([math.hypot(value[0], value[2]) for value in vertex_values] or [1.0])
+    min_vertex_y = min([value[1] for value in vertex_values] or [0.0]); max_vertex_y = max([value[1] for value in vertex_values] or [1.0])
+    for index, vertex in enumerate(vertex_values):
+        x, y, z = [float(value) for value in list(vertex)[:3]]
+        normalized_y = max(0.0, min(1.0, (y - min_vertex_y) / max(max_vertex_y - min_vertex_y, 1e-9)))
+        scaled = normalized_y * (layers - 1)
+        lower = min(layers - 2, max(0, int(math.floor(scaled))))
+        vertical_weight = scaled - lower
+        angle = (math.atan2(z, x) % (2.0 * math.pi)) / (2.0 * math.pi) * rings
+        angular_a = int(math.floor(angle)) % rings
+        angular_b = (angular_a + 1) % rings
+        angular_weight = angle - math.floor(angle)
+        bindings.append({"vertexIndex": index, "lowerLayer": lower, "upperLayer": lower + 1, "angularNodeA": angular_a, "angularNodeB": angular_b, "verticalWeight": round(vertical_weight, 6), "angularWeight": round(angular_weight, 6), "radialWeight": round(max(0.0, min(1.0, math.hypot(x, z) / max_radius)), 6), "restPositionMm": [x, y, z]})
+    cache_key = f"{model_revision}:{len(bindings)}:{cage_topology_checksum(cage)}"
+    return {"cacheKey": cache_key, "topologyChecksum": cage_topology_checksum(cage), "bindings": bindings}
+
+
+def deform_vertices_with_cage(vertices: Iterable[Iterable[float]], cage: dict, binding_cache: dict, falloff: str = "medium") -> list[list[float]]:
+    """Apply bilinear-plus-vertical cage displacement while preserving mesh topology."""
+    nodes = {(int(node.get("layerIndex", 0)), int(node.get("ringIndex", 0))): node for node in cage.get("nodes", [])}
+    radius = {"local": 1.0, "medium": 2.0, "wide": 4.0}.get(falloff, 2.0)
+    moved = []
+    for binding in binding_cache.get("bindings", []):
+        lower = int(binding["lowerLayer"]); upper = int(binding["upperLayer"])
+        a = int(binding["angularNodeA"]); b = int(binding["angularNodeB"])
+        vertical = float(binding["verticalWeight"]); angular = float(binding["angularWeight"])
+        delta = [0.0, 0.0, 0.0]
+        for key, weight in [((lower, a), (1 - vertical) * (1 - angular)), ((lower, b), (1 - vertical) * angular), ((upper, a), vertical * (1 - angular)), ((upper, b), vertical * angular)]:
+            node = nodes.get(key)
+            if not node:
+                continue
+            rest = node.get("restPositionMm", node.get("positionMm", [0, 0, 0])); position = node.get("positionMm", rest)
+            for axis in range(3):
+                delta[axis] += (float(position[axis]) - float(rest[axis])) * weight
+        original = list(binding["restPositionMm"])
+        distance_factor = max(0.0, min(1.0, float(binding.get("radialWeight", 1.0)) / radius))
+        eased = distance_factor * distance_factor * (3 - 2 * distance_factor)
+        moved.append([round(original[axis] + delta[axis] * eased, 5) for axis in range(3)])
+    return moved
 
 
 def validate_profile(points: Iterable[dict], minimum: int = 3) -> dict:

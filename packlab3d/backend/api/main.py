@@ -99,6 +99,11 @@ class EditableModelUpdateRequest(BaseModel):
     symmetry: Optional[bool] = True
 
 
+class EditorStateUpdateRequest(BaseModel):
+    expectedRevision: Optional[int] = None
+    editorState: dict = {}
+
+
 class DrawingDocumentUpdateRequest(BaseModel):
     notes: list[dict] = []
     dimensions: list[dict] = []
@@ -512,6 +517,26 @@ def update_editable_model(project_id: str, payload: EditableModelUpdateRequest):
         raise HTTPException(status_code=409, detail={**exc.to_dict(), "resource": "editable-model"})
     except GeometryValidationError as exc:
         raise HTTPException(status_code=400, detail={"error": "invalid_editable_model", "errors": exc.errors})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/projects/{project_id}/editable-model/editor-state")
+def get_editor_state(project_id: str):
+    try:
+        return multiview_service.editor_state(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.put("/projects/{project_id}/editable-model/editor-state")
+def update_editor_state(project_id: str, payload: EditorStateUpdateRequest):
+    try:
+        return multiview_service.update_editor_state(project_id, payload.model_dump(exclude_none=True))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.to_dict())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

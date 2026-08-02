@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export function mountThreeJsViewer(container, { i18n }) {
@@ -89,6 +90,9 @@ export function mountThreeJsViewer(container, { i18n }) {
 
   function setControlCage(cage, { onChange } = {}) {
     cageController?.destroy?.();
+    renderer.domElement.dataset.cageSelectedCount = '0';
+    renderer.domElement.dataset.cageTransformAttached = 'false';
+    renderer.domElement.dataset.cageNodeCount = String(cage?.nodes?.length || 0);
     const group = new THREE.Group();
     group.name = 'PackLabControlCage';
     const nodes = new Map();
@@ -103,6 +107,7 @@ export function mountThreeJsViewer(container, { i18n }) {
       nodes.set(node.id, mesh);
       group.add(mesh);
     });
+    const edgeLines = [];
     edges.forEach((edge) => {
       const from = typeof edge === 'object' ? edge.from : edge[0];
       const to = typeof edge === 'object' ? edge.to : edge[1];
@@ -110,7 +115,10 @@ export function mountThreeJsViewer(container, { i18n }) {
       const b = nodeById.get(to)?.positionMm;
       if (!a || !b) return;
       const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
-      group.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x0ea5e9 })));
+      const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x0ea5e9 }));
+      line.userData.cageEdgeId = edge.id;
+      edgeLines.push({ line, from, to });
+      group.add(line);
     });
     scene.add(group);
     if (currentModel) {
@@ -123,43 +131,84 @@ export function mountThreeJsViewer(container, { i18n }) {
     }
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    const selected = new Set();
+    const pivot = new THREE.Object3D();
+    pivot.name = 'PackLabCageSelectionPivot';
+    scene.add(pivot);
+    const transform = new TransformControls(camera, renderer.domElement);
+    transform.setMode('translate');
+    transform.setSpace('world');
+    scene.add(transform);
     let active = null;
-    let before = null;
-    function deformPreview(nodeId, delta) {
-      const source = nodeById.get(nodeId)?.positionMm || [0, 0, 0];
-      const radius = Math.max(30, currentModel ? new THREE.Box3().setFromObject(currentModel).getSize(new THREE.Vector3()).length() * 0.38 : 120);
+    let beforePositions = new Map();
+    let beforePivot = new THREE.Vector3();
+    let boxStart = null;
+    let boxElement = null;
+    function deformPreview(selectedIds, deltas) {
+      const sources = selectedIds.map((id) => nodeById.get(id)?.positionMm || [0, 0, 0]);
+      const radius = Math.max(30, currentModel ? new THREE.Box3().setFromObject(currentModel).getSize(new THREE.Vector3()).length() * 0.5 : 160);
       meshBindings.forEach(({ child, position, rest }) => {
         for (let index = 0; index < position.count; index += 1) {
           const offset = index * 3;
-          const distance = Math.hypot(rest[offset] - source[0], rest[offset + 1] - source[1], rest[offset + 2] - source[2]);
-          const normalized = Math.max(0, 1 - distance / radius);
-          const weight = normalized * normalized * (3 - 2 * normalized);
-          position.array[offset] = rest[offset] + delta[0] * weight;
-          position.array[offset + 1] = rest[offset + 1] + delta[1] * weight;
-          position.array[offset + 2] = rest[offset + 2] + delta[2] * weight;
+          const weighted = [0, 0, 0]; let total = 0;
+          selectedIds.forEach((id, index) => {
+            const source = sources[index];
+            const distance = Math.hypot(rest[offset] - source[0], rest[offset + 1] - source[1], rest[offset + 2] - source[2]);
+            const normalized = Math.max(0, 1 - distance / radius);
+            const weight = normalized * normalized * (3 - 2 * normalized);
+            weighted[0] += (deltas[index]?.[0] || 0) * weight;
+            weighted[1] += (deltas[index]?.[1] || 0) * weight;
+            weighted[2] += (deltas[index]?.[2] || 0) * weight;
+            total += weight;
+          });
+          if (total) { weighted[0] /= total; weighted[1] /= total; weighted[2] /= total; }
+          position.array[offset] = rest[offset] + weighted[0];
+          position.array[offset + 1] = rest[offset + 1] + weighted[1];
+          position.array[offset + 2] = rest[offset + 2] + weighted[2];
         }
         position.needsUpdate = true;
         child?.geometry?.computeVertexNormals?.();
       });
     }
-    function point(event) { const rect = renderer.domElement.getBoundingClientRect(); pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1; pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1; }
+    function point(event) { const rect = renderer.domElement.getBoundingClientRect(); pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1; pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1; return rect; }
+    function updatePivot() {
+      const values = [...selected].map((id) => nodes.get(id)?.position).filter(Boolean);
+      renderer.domElement.dataset.cageSelectedCount = String(values.length);
+      renderer.domElement.dataset.cageTransformAttached = values.length ? 'true' : 'false';
+      if (!values.length) { transform.detach(); return; }
+      pivot.position.set(0, 0, 0); values.forEach((value) => pivot.position.add(value)); pivot.position.multiplyScalar(1 / values.length); transform.attach(pivot);
+    }
+    function setSelection(id, additive = false) {
+      if (!additive) selected.clear();
+      if (selected.has(id) && additive) selected.delete(id); else selected.add(id);
+      nodes.forEach((mesh, nodeId) => mesh.material.color.set(selected.has(nodeId) ? 0xf97316 : (nodeById.get(nodeId)?.pinned ? 0x64748b : 0x0ea5e9)));
+      updatePivot();
+      onChange?.({ type: 'selection', selectedNodeIds: [...selected] });
+    }
+    function beginBox(event) { const rect = renderer.domElement.getBoundingClientRect(); boxStart = { x: event.clientX - rect.left, y: event.clientY - rect.top, additive: event.shiftKey }; boxElement = document.createElement('div'); boxElement.className = 'cage-selection-rectangle'; Object.assign(boxElement.style, { position: 'fixed', pointerEvents: 'none', border: '1px solid #f97316', background: 'rgba(249,115,22,.12)', zIndex: 10 }); document.body.appendChild(boxElement); }
+    function updateBox(event) { if (!boxStart || !boxElement) return; const rect = renderer.domElement.getBoundingClientRect(); const x = event.clientX - rect.left; const y = event.clientY - rect.top; const left = Math.min(boxStart.x, x); const top = Math.min(boxStart.y, y); Object.assign(boxElement.style, { left: `${rect.left + left}px`, top: `${rect.top + top}px`, width: `${Math.abs(x - boxStart.x)}px`, height: `${Math.abs(y - boxStart.y)}px` }); }
+    function finishBox(event) { if (!boxStart) return; const rect = renderer.domElement.getBoundingClientRect(); const endX = event.clientX - rect.left; const endY = event.clientY - rect.top; const minX = Math.min(boxStart.x, endX), maxX = Math.max(boxStart.x, endX), minY = Math.min(boxStart.y, endY), maxY = Math.max(boxStart.y, endY); if (Math.abs(endX - boxStart.x) > 4 || Math.abs(endY - boxStart.y) > 4) { if (!boxStart.additive) selected.clear(); nodes.forEach((mesh, id) => { const screen = mesh.position.clone().project(camera); const sx = (screen.x + 1) * rect.width / 2; const sy = (-screen.y + 1) * rect.height / 2; if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) selected.add(id); }); nodes.forEach((mesh, id) => mesh.material.color.set(selected.has(id) ? 0xf97316 : (nodeById.get(id)?.pinned ? 0x64748b : 0x0ea5e9))); updatePivot(); onChange?.({ type: 'selection', selectedNodeIds: [...selected], selectionMode: 'box' }); } boxElement?.remove(); boxElement = null; boxStart = null; }
     function down(event) {
+      if (transform.dragging) return;
       point(event); raycaster.setFromCamera(pointer, camera); const hit = raycaster.intersectObjects([...nodes.values()])[0];
-      if (!hit) return;
-      active = hit.object; before = active.position.clone(); controls.enabled = false; renderer.domElement.setPointerCapture?.(event.pointerId); onChange?.({ type: 'start', nodeId: active.userData.cageNodeId, before: before.toArray() });
+      if (!hit) { beginBox(event); return; }
+      setSelection(hit.object.userData.cageNodeId, event.shiftKey); active = hit.object; beforePositions = new Map([...selected].map((id) => [id, nodes.get(id).position.clone()])); beforePivot.copy(pivot.position); renderer.domElement.setPointerCapture?.(event.pointerId);
     }
     function move(event) {
-      if (!active) return; point(event);
-      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -before.y); const ray = raycaster.ray; if (!raycaster.setFromCamera(pointer, camera)) return;
-      const hit = new THREE.Vector3(); if (!ray.intersectPlane(plane, hit)) return;
-      active.position.x = hit.x; active.position.z = hit.z;
-      const delta = [hit.x - before.x, 0, hit.z - before.z];
-      deformPreview(active.userData.cageNodeId, delta);
-      onChange?.({ type: 'move', nodeId: active.userData.cageNodeId, deltaMm: delta, positionMm: active.position.toArray() });
+      if (boxStart) { updateBox(event); return; }
+      if (transform.dragging) return;
+      if (!active) return;
+      const deltas = [...selected].map((id) => { const node = nodeById.get(id); const before = beforePositions.get(id); const delta = [pivot.position.x - beforePivot.x, pivot.position.y - beforePivot.y, pivot.position.z - beforePivot.z]; return (node?.pinned ? [0, 0, 0] : ['x', 'y', 'z'].map((axis, index) => (node?.lockedAxes || []).includes(axis) ? 0 : delta[index])); });
+      selected.forEach((id, index) => { const node = nodes.get(id); const before = beforePositions.get(id); if (node && before) node.position.set(before.x + deltas[index][0], before.y + deltas[index][1], before.z + deltas[index][2]); });
+      edgeLines.forEach(({ line, from, to }) => { const a = nodes.get(from)?.position; const b = nodes.get(to)?.position; if (a && b) line.geometry.setFromPoints([a, b]); });
+      deformPreview([...selected], deltas);
+      onChange?.({ type: 'move', nodeId: active.userData.cageNodeId, selectedNodeIds: [...selected], deltaMm: deltas[0] || [0, 0, 0], positionMm: active.position.toArray() });
     }
-    function up() { if (!active) return; onChange?.({ type: 'end', nodeId: active.userData.cageNodeId }); active = null; controls.enabled = true; }
+    function up(event) { if (boxStart) { finishBox(event); return; } if (transform.dragging || !active) return; onChange?.({ type: 'end', nodeId: active.userData.cageNodeId, selectedNodeIds: [...selected] }); active = null; }
+    transform.addEventListener('dragging-changed', (event) => { controls.enabled = !event.value; if (event.value) { beforePositions = new Map([...selected].map((id) => [id, nodes.get(id).position.clone()])); beforePivot.copy(pivot.position); onChange?.({ type: 'start', nodeId: [...selected][0], selectedNodeIds: [...selected], before: beforePivot.toArray() }); } else if (selected.size) { onChange?.({ type: 'end', nodeId: [...selected][0], selectedNodeIds: [...selected] }); } });
+    transform.addEventListener('change', () => { if (!transform.dragging || !selected.size) return; const delta = [pivot.position.x - beforePivot.x, pivot.position.y - beforePivot.y, pivot.position.z - beforePivot.z]; const deltas = [...selected].map((id) => { const node = nodeById.get(id); return node?.pinned ? [0, 0, 0] : ['x', 'y', 'z'].map((axis, index) => (node?.lockedAxes || []).includes(axis) ? 0 : delta[index]); }); selected.forEach((id, index) => { const node = nodes.get(id); const before = beforePositions.get(id); if (node && before) node.position.set(before.x + deltas[index][0], before.y + deltas[index][1], before.z + deltas[index][2]); }); edgeLines.forEach(({ line, from, to }) => { const a = nodes.get(from)?.position; const b = nodes.get(to)?.position; if (a && b) line.geometry.setFromPoints([a, b]); }); deformPreview([...selected], deltas); onChange?.({ type: 'move', nodeId: [...selected][0], selectedNodeIds: [...selected], deltaMm: deltas[0] || [0, 0, 0], positionMm: nodes.get([...selected][0])?.position.toArray() }); });
     renderer.domElement.addEventListener('pointerdown', down); renderer.domElement.addEventListener('pointermove', move); renderer.domElement.addEventListener('pointerup', up);
-    cageController = { destroy() { renderer.domElement.removeEventListener('pointerdown', down); renderer.domElement.removeEventListener('pointermove', move); renderer.domElement.removeEventListener('pointerup', up); scene.remove(group); group.traverse((item) => { item.geometry?.dispose?.(); item.material?.dispose?.(); }); cageController = null; }, select(nodeId) { nodes.get(nodeId)?.material?.color.set(0xf97316); }, group };
+    cageController = { destroy() { renderer.domElement.removeEventListener('pointerdown', down); renderer.domElement.removeEventListener('pointermove', move); renderer.domElement.removeEventListener('pointerup', up); transform.detach(); scene.remove(transform); scene.remove(pivot); scene.remove(group); group.traverse((item) => { item.geometry?.dispose?.(); item.material?.dispose?.(); }); cageController = null; }, select(nodeId, additive = false) { setSelection(nodeId, additive); }, selectRegion(region) { selected.clear(); nodes.forEach((mesh, id) => { if (nodeById.get(id)?.region === region) selected.add(id); }); updatePivot(); }, getSelectedIds() { return [...selected]; }, group };
     return cageController;
   }
 
@@ -182,6 +231,17 @@ export function mountThreeJsViewer(container, { i18n }) {
       wireframeOn = on;
       wireframeBtn.classList.toggle('active', wireframeOn);
       applyWireframe();
+    },
+    getCameraState() {
+      return { mode: camera.isOrthographicCamera ? 'orthographic' : 'perspective', position: camera.position.toArray(), target: controls.target.toArray(), up: camera.up.toArray(), zoom: camera.zoom, viewPreset: null };
+    },
+    setCameraState(state = {}) {
+      const finiteVector = (value) => Array.isArray(value) && value.length === 3 && value.every((item) => Number.isFinite(Number(item)));
+      if (finiteVector(state.position)) camera.position.fromArray(state.position);
+      if (finiteVector(state.target)) controls.target.fromArray(state.target);
+      if (finiteVector(state.up)) camera.up.fromArray(state.up);
+      if (Number.isFinite(Number(state.zoom)) && Number(state.zoom) > 0 && Number(state.zoom) < 100) camera.zoom = Number(state.zoom);
+      camera.updateProjectionMatrix(); controls.update();
     },
     destroy() {
       window.removeEventListener('resize', resize);

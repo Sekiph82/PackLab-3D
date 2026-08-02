@@ -221,7 +221,7 @@
     "cage": {
       "delta": "Cage delta (mm)",
       "apply": "Move Cage Node",
-      "updated": "Control cage edit deformed the mesh and refreshed drawings.", "editor": "Control Cage Editor", "falloff": "Falloff", "symmetry": "Symmetry", "falloffMode": "Falloff", "viewerMode": "Three.js viewer mode", "nodes": "Cage nodes", "selected": "Selected", "pin": "Pin/Unpin", "resetNode": "Reset Node", "applied": "Control cage deformation applied to the mesh."
+      "updated": "Control cage edit deformed the mesh and refreshed drawings.", "editor": "Control Cage Editor", "falloff": "Falloff", "symmetry": "Symmetry", "falloffMode": "Falloff", "viewerMode": "Three.js viewer mode", "nodes": "Cage nodes", "selected": "Selected", "pin": "Pin/Unpin", "resetNode": "Reset Node", "applied": "Control cage deformation applied to the mesh.", "boxSelect": "Box Select", "axisLock": "Lock Axis", "transform": "Transform Controls", "cameraRestored": "Camera restored", "historyRestored": "Editor history restored", "persistenceWarning": "Editor state could not be fully persisted."
     },
     "dimension": {
       "move": "Move Dimension",

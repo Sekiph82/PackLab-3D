@@ -221,7 +221,7 @@
     "cage": {
       "delta": "Mabadiliko ya fremu (mm)",
       "apply": "Hamisha Nodi ya Fremu",
-      "updated": "Fremu ya udhibiti imebadili mesh na kuburudisha michoro.", "editor": "Kihariri cha Fremu ya Udhibiti", "falloff": "Eneo la Athari", "symmetry": "Ulinganifu", "falloffMode": "Eneo la Athari", "viewerMode": "Hali ya mtazamaji wa Three.js", "nodes": "Nodi za fremu", "selected": "Imechaguliwa", "pin": "Funga/Fungua", "resetNode": "Weka Nodi Upya", "applied": "Ubadilishaji wa fremu ya udhibiti umetumika kwenye mesh."
+      "updated": "Fremu ya udhibiti imebadili mesh na kuburudisha michoro.", "editor": "Kihariri cha Fremu ya Udhibiti", "falloff": "Eneo la Athari", "symmetry": "Ulinganifu", "falloffMode": "Eneo la Athari", "viewerMode": "Hali ya mtazamaji wa Three.js", "nodes": "Nodi za fremu", "selected": "Imechaguliwa", "pin": "Funga/Fungua", "resetNode": "Weka Nodi Upya", "applied": "Ubadilishaji wa fremu ya udhibiti umetumika kwenye mesh.", "boxSelect": "Chagua Kwa Kisanduku", "axisLock": "Funga Mhimili", "transform": "Vidhibiti vya Mabadiliko", "cameraRestored": "Kamera imerejeshwa", "historyRestored": "Historia ya kihariri imerejeshwa", "persistenceWarning": "Hali ya kihariri haikuweza kuhifadhiwa kikamilifu."
     },
     "dimension": {
       "move": "Hamisha Kipimo",

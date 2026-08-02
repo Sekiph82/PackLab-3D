@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import math
 import os
 import tempfile
 import threading
@@ -177,6 +178,8 @@ class MultiViewProjectService:
             (project_root / child).mkdir(parents=True, exist_ok=True)
         project = ProjectRecord(
             id=project_id,
+            # Keep the public project schema version at v5 for existing clients;
+            # editor-state evolution is tracked by editable3DState.version.
             version=5,
             projectName=project_name or "Untitled PackLab 3D Project",
             packageType=package_type or "bottle",
@@ -368,6 +371,32 @@ class MultiViewProjectService:
             "modelRevision": int(project.reconstructionModel.get("modelRevision", 1)),
             "geometryValidation": validate_model(project.reconstructionModel),
         }
+
+    def editor_state(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        state = project.editable3DState.get("editorState", {})
+        return {"projectId": project.id, "editorState": state, "modelRevision": int(project.reconstructionModel.get("modelRevision", 1) or 1)}
+
+    def update_editor_state(self, project_id: str, payload: dict) -> dict:
+        project = self.get_project(project_id)
+        model_revision = int(project.reconstructionModel.get("modelRevision", 1) or 1)
+        expected = payload.get("expectedRevision")
+        if expected is not None and int(expected) != model_revision:
+            raise RevisionConflict("editable-model-editor-state", int(expected), model_revision)
+        state = json.loads(json.dumps(payload.get("editorState") or {}))
+        camera = state.get("cameraState") or {}
+        for key in ("position", "target", "up"):
+            values = camera.get(key)
+            if values is not None and (not isinstance(values, list) or len(values) != 3 or not all(math.isfinite(float(value)) for value in values)):
+                raise ValueError(f"Invalid cameraState.{key}")
+        state.setdefault("version", 3)
+        state.setdefault("modelRevision", model_revision)
+        state.setdefault("history", {"entries": [], "cursor": 0, "maxEntries": 100})
+        state.setdefault("cageState", {})
+        project.editable3DState["editorState"] = state
+        project.editable3DState["editorStateRevision"] = int(project.editable3DState.get("editorStateRevision", 0)) + 1
+        self._save_project(project)
+        return self.editor_state(project_id)
 
     def update_editable_model(self, project_id: str, edits: dict) -> dict:
         project = self.get_project(project_id)
@@ -1108,7 +1137,8 @@ class MultiViewProjectService:
             project.version = 5
             for photo in project.photos:
                 ensure_geometry_state(project, photo.id)
-            self._save_project(project)
+        project.editable3DState.setdefault("editorState", {"version": 3, "history": {"entries": [], "cursor": 0, "maxEntries": 100}, "cageState": {}})
+        self._save_project(project)
         with self._lock:
             self._projects[project_id] = project
         return project

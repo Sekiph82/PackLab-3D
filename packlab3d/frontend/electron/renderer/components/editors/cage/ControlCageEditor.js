@@ -4,14 +4,44 @@ const WIDTH = 360;
 const HEIGHT = 300;
 function copy(value) { return JSON.parse(JSON.stringify(value ?? [])); }
 
+export function selectionPivot(nodes, selectedIds) {
+  const selected = nodes.filter((node) => selectedIds.includes(node.id));
+  if (!selected.length) return [0, 0, 0];
+  return selected.reduce((sum, node) => sum.map((value, index) => value + Number(node.positionMm?.[index] || 0)), [0, 0, 0]).map((value) => value / selected.length);
+}
+
+export function selectNodesInBox(nodes, rectangle, project = (node) => ({ x: node.positionMm?.[0] || 0, y: node.positionMm?.[2] || 0 })) {
+  const left = Math.min(rectangle.x0, rectangle.x1); const right = Math.max(rectangle.x0, rectangle.x1);
+  const top = Math.min(rectangle.y0, rectangle.y1); const bottom = Math.max(rectangle.y0, rectangle.y1);
+  return nodes.filter((node) => { const point = project(node); return point.x >= left && point.x <= right && point.y >= top && point.y <= bottom; }).map((node) => node.id);
+}
+
+export function constrainedDelta(node, delta) {
+  if (node?.pinned) return [0, 0, 0];
+  const locks = new Set(node?.lockedAxes || []);
+  return ['x', 'y', 'z'].map((axis, index) => locks.has(axis) ? 0 : Number(delta[index] || 0));
+}
+
+export function transformSelectedNodes(nodes, selectedIds, delta, { scale = 1, rotationDeg = 0, pivot = selectionPivot(nodes, selectedIds) } = {}) {
+  const angle = Number(rotationDeg) * Math.PI / 180;
+  return nodes.map((node) => {
+    if (!selectedIds.includes(node.id)) return { ...node, positionMm: [...(node.positionMm || [0, 0, 0])] };
+    const current = node.positionMm || [0, 0, 0];
+    const dx = (current[0] - pivot[0]) * scale; const dz = (current[2] - pivot[2]) * scale;
+    const transformed = [pivot[0] + dx * Math.cos(angle) - dz * Math.sin(angle), pivot[1] + (current[1] - pivot[1]) * scale, pivot[2] + dx * Math.sin(angle) + dz * Math.cos(angle)];
+    const movement = constrainedDelta(node, [transformed[0] - current[0] + delta[0], transformed[1] - current[1] + delta[1], transformed[2] - current[2] + delta[2]]);
+    return { ...node, positionMm: current.map((value, index) => Number(value) + movement[index]) };
+  });
+}
+
 export function applyCageDelta(nodes, selectedIds, delta, { falloff = 'medium', symmetry = true } = {}) {
   const distances = { local: 0.18, medium: 0.36, wide: 0.7 };
   const range = distances[falloff] || distances.medium;
   return nodes.map((node) => {
     if (!selectedIds.includes(node.id) || node.pinned) return { ...node, positionMm: [...(node.positionMm || [0, 0, 0])] };
-    const axes = new Set(node.lockedAxes || []);
     const result = [...(node.positionMm || [0, 0, 0])];
-    ['x', 'y', 'z'].forEach((axis, index) => { if (!axes.has(axis)) result[index] += Number(delta[index] || 0); });
+    const constrained = constrainedDelta(node, delta);
+    constrained.forEach((value, index) => { result[index] += value; });
     return { ...node, positionMm: result };
   });
 }
@@ -77,7 +107,7 @@ export function mountControlCageEditor(container, { i18n, cage, viewer, onApply,
   function resetSelected() { if (!selected.size) return; snapshot('Reset cage nodes'); nodes = nodes.map((node) => selected.has(node.id) ? { ...node, positionMm: [...(node.restPositionMm || node.fittedPositionMm || node.positionMm)] } : node); pending.clear(); render(); }
   function undo() { const item = undoStack.pop(); if (!item) return; redoStack.push({ label: item.label, value: copy(nodes) }); nodes = item.value; pending.clear(); render(); }
   function redo() { const item = redoStack.pop(); if (!item) return; undoStack.push({ label: item.label, value: copy(nodes) }); nodes = item.value; pending.clear(); render(); }
-  async function apply() { const entries = [...pending.entries()]; const cageNodes = entries.length ? entries.map(([id, deltaMm]) => ({ id, deltaMm })) : [...selected].map((id) => ({ id, deltaMm: [0, 0, 0] })); const result = await onApply?.({ cageNodes, falloff, symmetry, sourceEditor: 'control-cage', operationId: `cage-${Date.now()}` }); pending.clear(); status.textContent = tr('phase7.cage.applied', 'Control cage deformation applied to the mesh.', i18n); return result; }
+  async function apply() { const entries = [...pending.entries()]; const cageNodes = entries.length ? entries.map(([id, deltaMm]) => ({ id, deltaMm })) : [...selected].map((id) => ({ id, deltaMm: [0, 0, 0] })); const result = await onApply?.({ cageNodes, selectedNodeIds: [...selected], falloff, symmetry, sourceEditor: 'control-cage', operationId: `cage-${Date.now()}` }); pending.clear(); status.textContent = tr('phase7.cage.applied', 'Control cage deformation applied to the mesh.', i18n); return result; }
   svg?.addEventListener('pointermove', dragSvg); svg?.addEventListener('mousemove', dragSvg); window.addEventListener('pointerup', stop); window.addEventListener('mouseup', stop); render();
   return { getNodes: () => copy(nodes), getSelectedIds: () => [...selected], getFalloff: () => falloff, destroy: () => viewer?.clearControlCage?.() };
 }

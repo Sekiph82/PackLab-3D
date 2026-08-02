@@ -160,6 +160,21 @@ export function createApiClient(baseUrl) {
       return res.json();
     },
 
+    async getEditorState(projectId) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/editable-model/editor-state`);
+      if (!res.ok) throw await parseJsonError(res);
+      return res.json();
+    },
+
+    async updateEditorState({ projectId, editorState, expectedRevision = null }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/editable-model/editor-state`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision, editorState }),
+      });
+      if (!res.ok) throw await parseJsonError(res);
+      return res.json();
+    },
+
     async updateDrawingDocument({ projectId, patch }) {
       const res = await fetch(`${baseUrl}/projects/${projectId}/drawing-document`, {
         method: 'PATCH',
