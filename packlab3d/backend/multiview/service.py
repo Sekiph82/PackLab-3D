@@ -39,6 +39,19 @@ from packlab3d.backend.multiview.drawing_workspace import (
     create_version_snapshot,
 )
 from packlab3d.backend.multiview.native_reconstruction import analyze_photo_geometry, build_native_reconstruction, mesh_from_generic_model
+from packlab3d.backend.multiview.contour_service import (
+    RevisionConflict,
+    check_revision,
+    contour_checksum,
+    contour_from_mask,
+    ensure_geometry_state,
+    mark_contour_changed,
+    mark_landmarks_changed,
+    mark_mask_changed,
+    normalized_silhouette,
+    validate_contour,
+)
+from packlab3d.backend.multiview.reconstruction_input_service import build_reconstruction_input
 
 SUPPORTED_IMAGE_TYPES = {
     "image/jpeg": ".jpg",
@@ -102,6 +115,7 @@ class ProjectRecord:
     contours: dict = field(default_factory=dict)
     silhouettes: dict = field(default_factory=dict)
     landmarks: dict = field(default_factory=dict)
+    photoGeometry: dict = field(default_factory=dict)
     cameraEstimates: dict = field(default_factory=dict)
     measurements: dict = field(default_factory=dict)
     measurementLocks: dict = field(default_factory=dict)
@@ -151,11 +165,11 @@ class MultiViewProjectService:
     def create_project(self, project_name: str = "", package_type: str = "bottle") -> dict:
         project_id = f"project-{uuid.uuid4().hex[:12]}"
         project_root = self.root_dir / project_id
-        for child in ("originals", "working", "masks", "results"):
+        for child in ("originals", "working", "masks", "contours", "results"):
             (project_root / child).mkdir(parents=True, exist_ok=True)
         project = ProjectRecord(
             id=project_id,
-            version=4,
+            version=5,
             projectName=project_name or "Untitled PackLab 3D Project",
             packageType=package_type or "bottle",
             rootPath=str(project_root),
@@ -240,6 +254,8 @@ class MultiViewProjectService:
 
         with self._lock:
             project.photos.extend(added)
+            for photo in added:
+                ensure_geometry_state(project, photo.id)
             self._save_project(project)
         return {"project": self._project_json(project), "added": [asdict(photo) for photo in added]}
 
@@ -488,8 +504,106 @@ class MultiViewProjectService:
         self._save_project(project)
         return self.editable_model(project_id)
 
-    def update_landmarks(self, project_id: str, photo_id: str, landmarks: list[dict]) -> dict:
+    def get_photo_geometry(self, project_id: str, photo_id: str) -> dict:
         project = self.get_project(project_id)
+        photo = next((item for item in project.photos if item.id == photo_id), None)
+        if not photo:
+            raise KeyError(photo_id)
+        state = ensure_geometry_state(project, photo_id)
+        return {
+            "projectId": project.id,
+            "photoId": photo_id,
+            "geometry": state,
+            "mask": project.masks.get(photo_id, {}),
+            "contour": self.get_photo_contour(project_id, photo_id)["contour"],
+            "landmarks": project.landmarks.get(photo_id, []),
+        }
+
+    def get_photo_contour(self, project_id: str, photo_id: str) -> dict:
+        project = self.get_project(project_id)
+        if not any(item.id == photo_id for item in project.photos):
+            raise KeyError(photo_id)
+        state = ensure_geometry_state(project, photo_id)
+        entry = project.contours.get(photo_id, {})
+        active = entry.get("manual") or entry.get("active") or entry.get("automatic") or entry
+        return {"projectId": project.id, "photoId": photo_id, "geometry": state, "contour": active}
+
+    def update_manual_contour(self, project_id: str, photo_id: str, payload: dict) -> dict:
+        project = self.get_project(project_id)
+        photo = next((item for item in project.photos if item.id == photo_id), None)
+        if not photo:
+            raise KeyError(photo_id)
+        state = ensure_geometry_state(project, photo_id)
+        check_revision(state, "activeContour", payload.get("expectedRevision"))
+        points = payload.get("points") or []
+        contour = {
+            "photoId": photo_id,
+            "revision": int(state["revisions"].get("manualContour", 0)) + 1,
+            "sourceMaskRevision": state["revisions"].get("activeMask", 0),
+            "source": "manual",
+            "closed": True,
+            "rawPointCount": len(points),
+            "editablePointCount": len(points),
+            "points": points,
+            "holes": payload.get("holes") or [],
+            "normalizedSilhouette": normalized_silhouette(points, photo_id),
+            "checksum": contour_checksum(points),
+            "confidence": 0.92,
+            "updatedAt": time.time(),
+        }
+        validation = validate_contour(contour)
+        if not validation.valid:
+            raise ValueError("; ".join(validation.errors))
+        project.contours[photo_id] = {
+            **project.contours.get(photo_id, {}),
+            "manual": contour,
+            "active": contour,
+            "validation": {"valid": True, "errors": []},
+        }
+        project.silhouettes[photo_id] = {
+            **contour["normalizedSilhouette"],
+            "viewType": photo.viewType,
+            "confidence": contour["confidence"],
+        }
+        mark_contour_changed(state, manual=True)
+        contour["revision"] = state["revisions"]["activeContour"]
+        project.contours[photo_id]["manual"] = contour
+        project.contours[photo_id]["active"] = contour
+        project.editHistory.append({"type": "manual-contour-edit", "photoId": photo_id, "revision": state["revisions"]["activeContour"], "timestamp": time.time()})
+        self._save_project(project)
+        return {"projectId": project.id, "photoId": photo_id, "geometry": state, "contour": contour}
+
+    def reset_photo_contour(self, project_id: str, photo_id: str) -> dict:
+        project = self.get_project(project_id)
+        state = ensure_geometry_state(project, photo_id)
+        entry = project.contours.get(photo_id, {})
+        if "manual" in entry:
+            entry.pop("manual", None)
+        active = entry.get("automatic") or entry.get("fromManualMask") or entry.get("active") or entry
+        entry["active"] = active
+        project.contours[photo_id] = entry
+        state["activeContourSource"] = "automatic" if entry.get("automatic") else "manual-mask" if entry.get("fromManualMask") else state.get("activeContourSource", "none")
+        state["revisions"]["activeContour"] = int(state["revisions"].get("activeContour", 0)) + 1
+        state["stale"].update({"analysis": True, "reconstruction": True})
+        self._save_project(project)
+        return {"projectId": project.id, "photoId": photo_id, "geometry": state, "contour": active}
+
+    def approve_photo_geometry(self, project_id: str, photo_id: str) -> dict:
+        project = self.get_project(project_id)
+        if not any(item.id == photo_id for item in project.photos):
+            raise KeyError(photo_id)
+        state = ensure_geometry_state(project, photo_id)
+        state["approved"] = True
+        state["approvedAt"] = time.time()
+        self._save_project(project)
+        return self.get_photo_geometry(project_id, photo_id)
+
+    def update_landmarks(self, project_id: str, photo_id: str, landmarks: list[dict], expected_revision=None) -> dict:
+        project = self.get_project(project_id)
+        if not any(item.id == photo_id for item in project.photos):
+            raise KeyError(photo_id)
+        state = ensure_geometry_state(project, photo_id)
+        check_revision(state, "landmarks", expected_revision)
         normalized = []
         for landmark in landmarks:
             item = {
@@ -504,15 +618,18 @@ class MultiViewProjectService:
             }
             normalized.append(item)
         project.landmarks[photo_id] = normalized
+        mark_landmarks_changed(state)
         project.editHistory.append({"type": "landmark-edit", "photoId": photo_id, "count": len(normalized), "timestamp": time.time()})
         self._save_project(project)
-        return {"projectId": project.id, "photoId": photo_id, "landmarks": normalized}
+        return {"projectId": project.id, "photoId": photo_id, "geometry": state, "landmarks": normalized, "landmarkRevision": state["revisions"]["landmarks"]}
 
     def update_manual_mask(self, project_id: str, photo_id: str, payload: dict) -> dict:
         project = self.get_project(project_id)
         photo = next((item for item in project.photos if item.id == photo_id), None)
         if not photo:
             raise KeyError(photo_id)
+        state = ensure_geometry_state(project, photo_id)
+        check_revision(state, "activeMask", payload.get("expectedRevision"))
         width = int(payload.get("width") or 0)
         height = int(payload.get("height") or 0)
         values = payload.get("maskData") or []
@@ -539,21 +656,36 @@ class MultiViewProjectService:
             "cleanedMaskPath": str(mask_path),
             "checksum": payload.get("checksum"),
             "manualOverride": True,
+            "revision": int(state["revisions"].get("manualMask", 0)) + 1,
             "updatedAt": time.time(),
         }
+        mark_mask_changed(state, manual=True)
         project.silhouettes[photo.id] = silhouette
+        contour = contour_from_mask(array > 0, photo.id, revision=state["revisions"]["activeMask"], source="manual-mask")
         project.contours[photo.id] = {
-            "source": "manual-mask",
-            "normalizedContour": silhouette.get("levels", []),
-            "confidence": silhouette.get("confidence", 0.0),
+            **project.contours.get(photo.id, {}),
+            "active": contour,
+            "automatic": project.contours.get(photo.id, {}).get("automatic"),
+            "fromManualMask": contour,
         }
-        project.landmarks[photo.id] = _photo_landmarks_from_silhouette(silhouette)
+        mark_contour_changed(state, manual=False)
+        contour["revision"] = state["revisions"]["activeContour"]
+        contour["sourceMaskRevision"] = state["revisions"]["activeMask"]
+        project.contours[photo.id]["active"] = contour
+        project.contours[photo.id]["fromManualMask"] = contour
+        state["activeContourSource"] = "manual-mask"
+        existing_locked = [item for item in project.landmarks.get(photo.id, []) if item.get("locked")]
+        automatic = _photo_landmarks_from_silhouette(silhouette)
+        project.landmarks[photo.id] = _merge_locked_landmarks(automatic, existing_locked)
+        state["stale"].update({"landmarks": True, "analysis": True, "reconstruction": True})
         project.editHistory.append({"type": "manual-mask-edit", "photoId": photo.id, "checksum": payload.get("checksum"), "timestamp": time.time()})
         self._save_project(project)
         return {
             "projectId": project.id,
             "photo": asdict(photo),
             "mask": project.masks[photo.id],
+            "geometry": state,
+            "contour": contour,
             "silhouette": silhouette,
             "landmarks": project.landmarks[photo.id],
         }
@@ -698,17 +830,23 @@ class MultiViewProjectService:
                 "bbox": bbox,
                 "toolsAvailable": ["brush-add", "brush-remove", "polygon-add", "polygon-subtract", "fill-hole", "remove-component"],
             }
+            state = ensure_geometry_state(project, photo.id)
+            mark_mask_changed(state, manual=False)
             if bbox:
                 silhouette = analyze_photo_geometry(photo, mask_path=str(mask_path))
                 project.silhouettes[photo.id] = silhouette
-                project.landmarks[photo.id] = _photo_landmarks_from_silhouette(silhouette)
+                automatic_landmarks = _photo_landmarks_from_silhouette(silhouette)
+                project.landmarks[photo.id] = _merge_locked_landmarks(automatic_landmarks, [item for item in project.landmarks.get(photo.id, []) if item.get("locked")])
+                contour = contour_from_mask(np.asarray(mask, dtype=np.uint8) > 0, photo.id, revision=state["revisions"]["activeMask"], source="automatic")
                 project.contours[photo.id] = {
-                    "rawContour": silhouette.get("levels", []),
-                    "simplifiedContour": silhouette.get("levels", []),
-                    "normalizedContour": silhouette,
+                    **project.contours.get(photo.id, {}),
+                    "automatic": contour,
+                    "active": project.contours.get(photo.id, {}).get("manual") or contour,
                     "confidence": silhouette["confidence"],
                     "sourcePixelMapping": {"workingWidth": photo.workingWidth, "workingHeight": photo.workingHeight},
                 }
+                mark_contour_changed(state, manual=False)
+                state["stale"].update({"contour": False, "landmarks": False, "analysis": False, "reconstruction": True})
                 photo.segmentation["contourConfidence"] = silhouette["confidence"]
         self._save_project(project)
         job.result = {"photos": [asdict(photo) for photo in photos]}
@@ -724,12 +862,13 @@ class MultiViewProjectService:
         measurements = payload.get("measurements") or {}
         package_type = payload.get("packageType") or project.packageType or "custom"
         dimensions, dimension_sources = _infer_dimensions(photos, measurements, package_type)
+        reconstruction_input = build_reconstruction_input(project)
         self._progress(job, "generating_reference_geometry", "Generating unified reference geometry", 35)
         model_measurements = dict(measurements)
         for key, value in dimensions.items():
             if _positive(model_measurements.get(key)) is None:
                 model_measurements[key] = value
-        native_mesh, reconstruction_model, optimization_report = build_native_reconstruction(photos, model_measurements, dimension_sources)
+        native_mesh, reconstruction_model, optimization_report = build_native_reconstruction(photos, model_measurements, dimension_sources, reconstruction_input)
         mesh = native_mesh
         reference_path = Path(project.rootPath) / "results" / "reference_mesh.obj"
         o3d.io.write_triangle_mesh(str(reference_path), mesh)
@@ -773,6 +912,11 @@ class MultiViewProjectService:
             "cleanupReport": cleanup_report,
             "glbValidation": glb_validation,
             "drawingValidation": drawing_package.get("validation", {}),
+            "reconstructionInput": {
+                "revision": reconstruction_input["revision"],
+                "photoGeometryRevisions": reconstruction_input["photoGeometryRevisions"],
+                "warnings": reconstruction_input["warnings"],
+            },
         }
         report_path = Path(project.rootPath) / "results" / "reconstruction_report.json"
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -785,6 +929,8 @@ class MultiViewProjectService:
             "status": "complete",
             "confidence": confidence,
             "warnings": limitations,
+            "inputRevision": reconstruction_input["revision"],
+            "photoGeometryRevisions": reconstruction_input["photoGeometryRevisions"],
         }
         project.reconstructionModel = reconstruction_model
         project.optimizationReport = optimization_report
@@ -814,6 +960,14 @@ class MultiViewProjectService:
             "drawingPackage": str(drawing_path),
             "report": str(report_path),
         }
+        if self._reconstruction_input_is_current(project, reconstruction_input):
+            for input_photo in reconstruction_input.get("photos", []):
+                state = ensure_geometry_state(project, input_photo["photoId"])
+                state["revisions"]["reconstructionInput"] = reconstruction_input["revision"]
+                state["stale"]["reconstruction"] = False
+        else:
+            project.reconstruction["status"] = "older-geometry-checkpoint"
+            project.reconstruction["warnings"] = limitations + ["Reconstruction completed from an older geometry revision."]
         self._save_project(project)
         job.result = {"projectId": project.id, "assets": project.assets, "report": report}
         self._progress(job, "preparing_final_result", "Preparing final result", 96, completed=len(photos), total=len(photos))
@@ -839,6 +993,13 @@ class MultiViewProjectService:
 
     def _included_photos(self, project_id: str) -> list[PhotoRecord]:
         return [photo for photo in self.get_project(project_id).photos if photo.included]
+
+    def _reconstruction_input_is_current(self, project: ProjectRecord, reconstruction_input: dict) -> bool:
+        for photo_id, revision in reconstruction_input.get("photoGeometryRevisions", {}).items():
+            state = ensure_geometry_state(project, photo_id)
+            if int(state["revisions"].get("photoGeometry", 0)) != int(revision):
+                return False
+        return True
 
     def _progress(self, job: JobRecord, stage: str, message: str, overall: int, *, state: str = "running", completed: Optional[int] = None, total: Optional[int] = None, warnings: Optional[list[str]] = None) -> None:
         if job.state == "cancelled":
@@ -892,6 +1053,7 @@ class MultiViewProjectService:
             contours=data.get("contours", {}),
             silhouettes=data.get("silhouettes", {}),
             landmarks=data.get("landmarks", {}),
+            photoGeometry=data.get("photoGeometry", {}),
             cameraEstimates=data.get("cameraEstimates", {}),
             measurements=data.get("measurements", {}),
             measurementLocks=data.get("measurementLocks", {}),
@@ -911,8 +1073,10 @@ class MultiViewProjectService:
             assets=data.get("assets", {}),
             warnings=data.get("warnings", []),
         )
-        if project.version < 4:
-            project.version = 4
+        if project.version < 5:
+            project.version = 5
+            for photo in project.photos:
+                ensure_geometry_state(project, photo.id)
             self._save_project(project)
         with self._lock:
             self._projects[project_id] = project
@@ -1084,6 +1248,15 @@ def _photo_landmarks_from_silhouette(silhouette: dict) -> list[dict]:
         {"id": f"{silhouette['photoId']}-label-top", "type": "labelable-area-top", "view": silhouette["viewType"], "x": silhouette["centerlineX"], "y": 0.72, "confidence": round(silhouette["confidence"] * 0.55, 3), "source": "automatic", "locked": False},
         {"id": f"{silhouette['photoId']}-label-bottom", "type": "labelable-area-bottom", "view": silhouette["viewType"], "x": silhouette["centerlineX"], "y": 0.22, "confidence": round(silhouette["confidence"] * 0.55, 3), "source": "automatic", "locked": False},
     ]
+
+
+def _merge_locked_landmarks(automatic: list[dict], locked: list[dict]) -> list[dict]:
+    if not locked:
+        return automatic
+    by_id = {item.get("id"): item for item in automatic}
+    for item in locked:
+        by_id[item.get("id")] = {**item, "locked": True, "source": item.get("source", "manual")}
+    return list(by_id.values())
 
 
 def _infer_dimensions(photos: list[PhotoRecord], measurements: dict, package_type: str) -> tuple[dict, dict]:

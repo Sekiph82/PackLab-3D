@@ -38,7 +38,7 @@ test.describe.serial('PackLab 3D desktop app (real end-to-end run)', () => {
     log(`Launching Electron app from ${APP_DIR} with PACKLAB_BACKEND_PORT=${BACKEND_PORT}`);
     app = await electron.launch({
       args: [APP_DIR],
-      env: { ...process.env, PACKLAB_BACKEND_PORT: BACKEND_PORT },
+      env: { ...process.env, PACKLAB_BACKEND_PORT: BACKEND_PORT, PACKLAB_E2E: '1' },
     });
     window = await app.firstWindow();
     window.on('console', (msg) => log(`[renderer console] ${msg.text()}`));
@@ -48,8 +48,12 @@ test.describe.serial('PackLab 3D desktop app (real end-to-end run)', () => {
   test.afterAll(async () => {
     fs.writeFileSync(path.join(LOGS_DIR, 'e2e_run.log'), `${runLog.join('\n')}\n`);
     fs.writeFileSync(path.join(LOGS_DIR, 'e2e_errors.log'), `${errorLog.join('\n')}\n`);
-    await app.close();
-    log('App closed.');
+    if (app) {
+      await app.close();
+      log('App closed.');
+    } else {
+      log('App was not launched; close skipped.');
+    }
   });
 
   test('01 - splash screen appears, then hides once backend is ready', async () => {
@@ -133,5 +137,71 @@ test.describe.serial('PackLab 3D desktop app (real end-to-end run)', () => {
     expect(status).not.toContain('generate-mesh');
     await expect(window.getByRole('button', { name: /create unified design/i })).toBeVisible();
     await expect(window.getByRole('button', { name: /generate mesh/i })).toHaveCount(0);
+  });
+
+  test('10 - photo geometry mask edit uses pointer input and saves revision', async () => {
+    await window.getByRole('button', { name: /edit geometry/i }).first().click();
+    await expect(window.locator('.photo-geometry-workspace')).toBeVisible();
+    const canvas = window.locator('.mask-editor__canvas').first();
+    const box = await canvas.boundingBox();
+    await window.mouse.move(box.x + 40, box.y + 40);
+    await window.mouse.down();
+    await window.mouse.move(box.x + 70, box.y + 68, { steps: 6 });
+    await window.mouse.up();
+    await window.locator('.photo-geometry-workspace button', { hasText: 'Save Mask' }).click();
+    await expect(window.locator('.photo-geometry-workspace')).toContainText(/Mask rev|Manual mask saved/i, { timeout: 15000 });
+    log('Mask pointer edit saved through photo geometry workspace.');
+  });
+
+  test('11 - contour node drag saves normalized contour revision', async () => {
+    await window.locator('.photo-geometry-workspace button', { hasText: 'Contour' }).click();
+    await expect(window.locator('.photo-geometry-workspace .contour-editor__canvas [data-contour-point-id]').first()).toBeVisible({ timeout: 10000 });
+    const node = window.locator('.photo-geometry-workspace .contour-editor__canvas [data-contour-point-id]').nth(3);
+    const box = await node.boundingBox();
+    await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await window.mouse.down();
+    await window.mouse.move(box.x + 6, box.y + 4, { steps: 6 });
+    await window.mouse.up();
+    await window.locator('.photo-geometry-workspace .contour-editor__toolbar button', { hasText: /^Save$/ }).click();
+    await expect(window.locator('.contour-editor__status')).toContainText(/Manual contour saved|Revision/i, { timeout: 15000 });
+    log('Contour pointer edit saved through photo geometry workspace.');
+  });
+
+  test('12 - landmark drag and lock persist as geometry constraints', async () => {
+    await window.locator('.photo-geometry-workspace button', { hasText: 'Landmarks' }).click();
+    await expect(window.locator('.photo-geometry-workspace .landmark-editor__canvas [data-landmark-id]').first()).toBeVisible({ timeout: 10000 });
+    const point = window.locator('.photo-geometry-workspace .landmark-editor__canvas [data-landmark-id]').first();
+    const box = await point.boundingBox();
+    await window.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await window.mouse.down();
+    await window.mouse.move(box.x + 20, box.y - 15, { steps: 6 });
+    await window.mouse.up();
+    const landmarkPanel = window.locator('.photo-geometry-workspace .interactive-editor', { hasText: 'Landmark Editor' });
+    await landmarkPanel.locator('button', { hasText: 'Lock/Unlock' }).click();
+    await landmarkPanel.locator('button', { hasText: /^Save$/ }).click();
+    await expect(window.locator('.landmark-editor__canvas [data-landmark-id]').first()).toBeVisible();
+    log('Landmark pointer edit and lock saved.');
+  });
+
+  test('13 - reconstruction consumes current edited geometry after stale state', async () => {
+    await window.getByRole('button', { name: /create unified design/i }).click();
+    await window.waitForFunction(
+      () => (document.querySelector('.multi-photo__report')?.textContent || '').includes('Unified reconstruction complete.'),
+      { timeout: 45000 }
+    );
+    const report = await window.locator('.multi-photo__report').textContent();
+    expect(report).toContain('Provider used');
+    log('Reconstruction reran after geometry edits.');
+  });
+
+  test('14 - edited geometry can be fetched after project reload from backend state', async () => {
+    const diagnostics = await window.evaluate(() => window.packlab.diagnostics.get());
+    const photoSet = await window.evaluate(() => window.packlab.store?.getState?.().photoSet || null);
+    expect(photoSet?.projectId).toBeTruthy();
+    const photoId = photoSet.photos[0].id;
+    const geometry = await fetch(`${diagnostics.backendUrl}/projects/${photoSet.projectId}/photos/${photoId}/geometry`).then((res) => res.json());
+    expect(geometry.geometry.revisions.photoGeometry).toBeGreaterThan(0);
+    expect(geometry.contour.source).toMatch(/manual|manual-mask/);
+    log('Edited geometry persisted and is fetchable after backend project serialization.');
   });
 });

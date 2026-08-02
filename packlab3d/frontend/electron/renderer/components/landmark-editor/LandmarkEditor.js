@@ -1,4 +1,5 @@
-import { actionButton, clamp, el, localPoint, makePanel, svgEl, tr } from '../editorUtils.js';
+import { actionButton, clamp, el, makePanel, svgEl, tr } from '../editorUtils.js';
+import { createCoordinateMapper } from '../photo-geometry/CoordinateMapper.js';
 
 const WIDTH = 320;
 const HEIGHT = 220;
@@ -14,6 +15,17 @@ export function mountLandmarkEditor(container, { i18n, photo, landmarks = [], on
   let points = normalizeLandmarks(landmarks, photo);
   let undoStack = [];
   let redoStack = [];
+  const revisions = photo?.geometry?.revisions || {};
+  let currentRevision = Number(revisions.landmarks ?? photo?.landmarkRevision ?? 0);
+  const mapper = createCoordinateMapper({
+    sourceWidth: photo?.width || photo?.workingWidth || WIDTH,
+    sourceHeight: photo?.height || photo?.workingHeight || HEIGHT,
+    workingWidth: photo?.workingWidth || photo?.width || WIDTH,
+    workingHeight: photo?.workingHeight || photo?.height || HEIGHT,
+    viewportWidth: WIDTH,
+    viewportHeight: HEIGHT,
+    rotation: photo?.rotation || 0,
+  });
 
   toolbar.append(
     actionButton(tr('phase7.landmark.add', 'Add Landmark', i18n), addLandmark),
@@ -66,8 +78,9 @@ export function mountLandmarkEditor(container, { i18n, photo, landmarks = [], on
     const bg = svgEl('rect', { x: 0, y: 0, width: WIDTH, height: HEIGHT, fill: '#f8fbff', stroke: '#d7e5f7' });
     svg.appendChild(bg);
     points.forEach((point) => {
-      const x = point.x * WIDTH;
-      const y = (1 - point.y) * HEIGHT;
+      const css = mapper.normalizedToCanvasCss({ normalizedX: point.x, normalizedY: 1 - point.y });
+      const x = css.canvasCssX;
+      const y = css.canvasCssY;
       const circle = svgEl('circle', {
         cx: x,
         cy: y,
@@ -99,9 +112,13 @@ export function mountLandmarkEditor(container, { i18n, photo, landmarks = [], on
     event.preventDefault();
     const point = points.find((item) => item.id === draggingId);
     if (!point || point.locked) return;
-    const local = localPoint(event, svg, WIDTH, HEIGHT);
-    point.x = clamp(local.x / WIDTH);
-    point.y = clamp(1 - (local.y / HEIGHT));
+    const rect = svg.getBoundingClientRect();
+    const normalized = mapper.canvasCssToNormalized({
+      canvasCssX: event.clientX - rect.left,
+      canvasCssY: event.clientY - rect.top,
+    });
+    point.x = clamp(normalized.normalizedX);
+    point.y = clamp(1 - normalized.normalizedY);
     point.source = 'manual';
     point.confidence = 1;
     onDirty?.({ type: 'landmark-drag', landmarkId: point.id, photoId: photo?.uploadedId || photo?.id });
@@ -167,7 +184,8 @@ export function mountLandmarkEditor(container, { i18n, photo, landmarks = [], on
   }
 
   async function save() {
-    await onSave?.(points);
+    const result = await onSave?.(points, { expectedRevision: currentRevision });
+    currentRevision = Number(result?.geometry?.revisions?.landmarks ?? result?.landmarkRevision ?? currentRevision + 1);
     status.textContent = tr('phase7.landmark.saved', 'Landmarks saved and reconstruction constraints updated.', i18n);
   }
 

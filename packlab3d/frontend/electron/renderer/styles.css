@@ -828,6 +828,7 @@ html, body {
 }
 
 .mask-editor__canvas,
+.contour-editor__canvas,
 .landmark-editor__canvas,
 .profile-editor__canvas,
 .section-editor__canvas,
@@ -842,6 +843,77 @@ html, body {
   border-radius: 6px;
   background: #f8fbff;
   touch-action: none;
+}
+
+.photo-geometry-workspace {
+  margin: 10px 0;
+}
+
+.photo-geometry-workspace__header,
+.photo-geometry-workspace__conflict {
+  border: 1px solid #d7e5f7;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+  background: #f8fbff;
+  color: #17324d;
+}
+
+.photo-geometry-workspace__conflict {
+  margin-top: 8px;
+  border-color: #f59e0b;
+  background: #fff7ed;
+}
+
+.photo-geometry-workspace__tabs,
+.contour-editor__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.photo-geometry-workspace__tabs .is-active {
+  background: var(--pl-blue);
+  color: #fff;
+}
+
+.contour-editor__path {
+  fill: rgba(14, 165, 233, 0.14);
+  stroke: #0ea5e9;
+  stroke-width: 2;
+}
+
+.contour-editor__node {
+  fill: #fff;
+  stroke: #0ea5e9;
+  stroke-width: 2;
+  cursor: grab;
+}
+
+.contour-editor__node--locked {
+  fill: #f59e0b;
+  stroke: #92400e;
+}
+
+.contour-editor__bounds,
+.contour-editor__centerline,
+.contour-editor__support {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.32);
+  stroke-dasharray: 5 5;
+}
+
+.contour-editor__landmark {
+  fill: #f97316;
+  stroke: #7c2d12;
+}
+
+.contour-editor__status,
+.contour-editor__validation {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #52627a;
 }
 
 .drawing-workspace__canvas {

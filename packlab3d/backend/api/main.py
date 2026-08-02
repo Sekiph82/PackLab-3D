@@ -19,6 +19,7 @@ from starlette.background import BackgroundTask
 
 from packlab3d.backend.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_message
 from packlab3d.backend.i18n import set_language as i18n_set_language
+from packlab3d.backend.multiview.contour_service import RevisionConflict
 from packlab3d.backend.multiview.service import MultiViewProjectService
 from packlab3d.core.utils.errors import ModelNotAvailableError
 
@@ -114,6 +115,7 @@ class CompareVersionsRequest(BaseModel):
 class LandmarkUpdateRequest(BaseModel):
     photoId: str
     landmarks: list[dict]
+    expectedRevision: Optional[int] = None
 
 
 class MaskUpdateRequest(BaseModel):
@@ -121,6 +123,14 @@ class MaskUpdateRequest(BaseModel):
     height: int
     checksum: str
     maskData: list[int]
+    expectedRevision: Optional[int] = None
+
+
+class ContourUpdateRequest(BaseModel):
+    expectedRevision: Optional[int] = None
+    points: list[dict]
+    holes: list[dict] = []
+    reason: str = "manual contour edit"
 
 
 class RecoverySnapshotRequest(BaseModel):
@@ -509,9 +519,66 @@ def update_drawing_document(project_id: str, payload: DrawingDocumentUpdateReque
 @app.patch("/projects/{project_id}/landmarks")
 def update_project_landmarks(project_id: str, payload: LandmarkUpdateRequest):
     try:
-        return multiview_service.update_landmarks(project_id, payload.photoId, payload.landmarks)
+        return multiview_service.update_landmarks(project_id, payload.photoId, payload.landmarks, expected_revision=payload.expectedRevision)
     except KeyError:
         raise HTTPException(status_code=404, detail="Project or photo not found.")
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.to_dict())
+
+
+@app.get("/projects/{project_id}/photos/{photo_id}/geometry")
+def get_project_photo_geometry(project_id: str, photo_id: str):
+    try:
+        return multiview_service.get_photo_geometry(project_id, photo_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
+
+
+@app.get("/projects/{project_id}/photos/{photo_id}/contour")
+def get_project_photo_contour(project_id: str, photo_id: str):
+    try:
+        return multiview_service.get_photo_contour(project_id, photo_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
+
+
+@app.put("/projects/{project_id}/photos/{photo_id}/contour")
+def put_project_photo_contour(project_id: str, photo_id: str, payload: ContourUpdateRequest):
+    try:
+        return multiview_service.update_manual_contour(project_id, photo_id, payload.model_dump())
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.to_dict())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/projects/{project_id}/photos/{photo_id}/contour/reset")
+def reset_project_photo_contour(project_id: str, photo_id: str):
+    try:
+        return multiview_service.reset_photo_contour(project_id, photo_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
+
+
+@app.get("/projects/{project_id}/photos/{photo_id}/landmarks")
+def get_project_photo_landmarks(project_id: str, photo_id: str):
+    try:
+        geometry = multiview_service.get_photo_geometry(project_id, photo_id)
+        return {"projectId": project_id, "photoId": photo_id, "geometry": geometry["geometry"], "landmarks": geometry["landmarks"]}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
+
+
+@app.put("/projects/{project_id}/photos/{photo_id}/landmarks")
+def put_project_photo_landmarks(project_id: str, photo_id: str, payload: LandmarkUpdateRequest):
+    try:
+        return multiview_service.update_landmarks(project_id, photo_id, payload.landmarks, expected_revision=payload.expectedRevision)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.to_dict())
 
 
 @app.patch("/projects/{project_id}/photos/{photo_id}/mask")
@@ -520,8 +587,41 @@ def update_project_photo_mask(project_id: str, photo_id: str, payload: MaskUpdat
         return multiview_service.update_manual_mask(project_id, photo_id, payload.model_dump())
     except KeyError:
         raise HTTPException(status_code=404, detail="Project or photo not found.")
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.to_dict())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/projects/{project_id}/photos/{photo_id}/mask")
+def get_project_photo_mask(project_id: str, photo_id: str):
+    try:
+        geometry = multiview_service.get_photo_geometry(project_id, photo_id)
+        return {"projectId": project_id, "photoId": photo_id, "geometry": geometry["geometry"], "mask": geometry["mask"]}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
+
+
+@app.put("/projects/{project_id}/photos/{photo_id}/mask")
+def put_project_photo_mask(project_id: str, photo_id: str, payload: MaskUpdateRequest):
+    return update_project_photo_mask(project_id, photo_id, payload)
+
+
+@app.post("/projects/{project_id}/photos/{photo_id}/mask/recompute-contour")
+def recompute_project_photo_contour(project_id: str, photo_id: str):
+    try:
+        geometry = multiview_service.get_photo_geometry(project_id, photo_id)
+        return geometry
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
+
+
+@app.post("/projects/{project_id}/photos/{photo_id}/geometry/approve")
+def approve_project_photo_geometry(project_id: str, photo_id: str):
+    try:
+        return multiview_service.approve_photo_geometry(project_id, photo_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
 
 
 @app.put("/projects/{project_id}/recovery")

@@ -148,7 +148,7 @@ def test_analysis_segmentation_and_reconstruction_use_all_included_photos():
         assert "metadata.json" in zf.namelist()
 
     persisted = client.get(f"/projects/{project_id}/report").json()
-    assert persisted["version"] == 4
+    assert persisted["version"] == 5
     assert persisted["reconstructionModel"]["coordinateSystem"] == "millimetres, +Y up"
     assert [photo["id"] for photo in persisted["photos"]][:3] == [photos[0]["id"], photos[1]["id"], photos[2]["id"]]
 

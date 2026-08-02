@@ -3,6 +3,21 @@ function decodeApiMessage(headers) {
   return raw ? decodeURIComponent(raw) : null;
 }
 
+async function parseJsonError(response) {
+  let detail = response.statusText;
+  let body = null;
+  try {
+    body = await response.clone().json();
+    if (body && body.detail) detail = typeof body.detail === 'string' ? body.detail : body.detail.message || JSON.stringify(body.detail);
+  } catch (err) {
+    // keep status text
+  }
+  const error = new Error(detail);
+  error.status = response.status;
+  error.detail = body?.detail || body;
+  return error;
+}
+
 async function postForm(baseUrl, path, formData, { timeoutMs } = {}) {
   const controller = timeoutMs ? new AbortController() : null;
   const timeout = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : null;
@@ -47,7 +62,7 @@ export function createApiClient(baseUrl) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectName, packageType }),
       });
-      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      if (!res.ok) throw await parseJsonError(res);
       return res.json();
     },
 
@@ -145,27 +160,49 @@ export function createApiClient(baseUrl) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      if (!res.ok) throw await parseJsonError(res);
       return res.json();
     },
 
-    async updateLandmarks({ projectId, photoId, landmarks }) {
-      const res = await fetch(`${baseUrl}/projects/${projectId}/landmarks`, {
-        method: 'PATCH',
+    async updateLandmarks({ projectId, photoId, landmarks, expectedRevision = null }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/photos/${photoId}/landmarks`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photoId, landmarks }),
+        body: JSON.stringify({ photoId, landmarks, expectedRevision }),
       });
-      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      if (!res.ok) throw await parseJsonError(res);
       return res.json();
     },
 
-    async updatePhotoMask({ projectId, photoId, width, height, checksum, maskData }) {
+    async updatePhotoMask({ projectId, photoId, width, height, checksum, maskData, expectedRevision = null }) {
       const res = await fetch(`${baseUrl}/projects/${projectId}/photos/${photoId}/mask`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ width, height, checksum, maskData }),
+        body: JSON.stringify({ width, height, checksum, maskData, expectedRevision }),
       });
-      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      if (!res.ok) throw await parseJsonError(res);
+      return res.json();
+    },
+
+    async getPhotoGeometry({ projectId, photoId }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/photos/${photoId}/geometry`);
+      if (!res.ok) throw await parseJsonError(res);
+      return res.json();
+    },
+
+    async getPhotoContour({ projectId, photoId }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/photos/${photoId}/contour`);
+      if (!res.ok) throw await parseJsonError(res);
+      return res.json();
+    },
+
+    async updatePhotoContour({ projectId, photoId, expectedRevision = null, points, holes = [], reason = 'manual contour edit' }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/photos/${photoId}/contour`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision, points, holes, reason }),
+      });
+      if (!res.ok) throw await parseJsonError(res);
       return res.json();
     },
 

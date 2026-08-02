@@ -62,7 +62,7 @@ def test_quality_duplicate_same_object_and_view_assignment_are_structured():
     assert done["result"]["sameObject"]["status"] in {"consistent", "probably-consistent", "uncertain"}
     assert done["result"]["viewCoverage"]["front"] in {"strong", "medium", "missing"}
     report = client.get(f"/projects/{project_id}/report").json()
-    assert report["version"] == 4
+    assert report["version"] == 5
     assert report["viewAssignments"]
 
 

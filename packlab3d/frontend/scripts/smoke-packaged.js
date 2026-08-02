@@ -99,10 +99,13 @@ async function closeApp(page, browser, child) {
 
 function createSmokePngFiles(count) {
   fs.mkdirSync(claudeLogDir, { recursive: true });
-  const png = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z8BQDwAFgwJ/l5W1WQAAAABJRU5ErkJggg==',
-    'base64'
-  );
+  const sourcePng = path.join(projectRoot, 'PackLab 3D logo pack', '512x512 px.png');
+  const png = fs.existsSync(sourcePng)
+    ? fs.readFileSync(sourcePng)
+    : Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAADDPmHLAAABhUlEQVR4nO3bQQ6CMBBFQez/f2YLKbtQUkaTiUmMOWeT29whKLshSZEkSZLkeTvAR7EDzIDGpv7+znSef9Xn8TPOC7zc22vEtPn94+tFAmYMiRmvmwNexqMMH2trPFpMSt2s3Y9+pjEUjwLgS4LCp4+PZ4TnV+K8qQAr8vPnbv5TQvBtIBAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAQASmrQLgr4T4T2JtIBAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACBQecgRr3Jy70EAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAROkTVBeSU/8CAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAEqM9A8CIBAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAAAAgEAACAQARRrvYiAQAAIBAIAAACg9YCNKVaCd1p2VEAAAAASUVORK5CYII=',
+      'base64'
+    );
   return Array.from({ length: count }, (_item, index) => {
     const filePath = path.join(claudeLogDir, `multi-photo-smoke-${index + 1}.png`);
     fs.writeFileSync(filePath, png);
@@ -201,6 +204,11 @@ async function runScenario(name, index) {
         'svg-dxf-validation',
         'version-compare',
         'autosave-recovery',
+        'photo-geometry-mask',
+        'photo-geometry-contour',
+        'photo-geometry-landmark',
+        'photo-geometry-reconstruction',
+        'photo-geometry-reopen',
       ];
       if (['multiphoto', 'primary-unified', 'one-photo-unified', 'label-mapping', 'label-timeout', 'native-reconstruction', 'editable-3d', 'linked-2d', ...phase7Scenarios].includes(name)) {
         const screenshotDir = process.env.PACKLAB_MULTIPHOTO_SCREENSHOT_DIR || '';
@@ -393,6 +401,70 @@ async function runScenario(name, index) {
               { timeout: 15000 }
             );
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-mask-editor-${Date.now()}.png`), fullPage: true });
+          }
+          if (name === 'photo-geometry-mask' || name === 'photo-geometry-contour' || name === 'photo-geometry-landmark' || name === 'photo-geometry-reconstruction' || name === 'photo-geometry-reopen') {
+            await page.locator('.photo-card button', { hasText: 'Edit Geometry' }).first().click();
+            await page.waitForSelector('.photo-geometry-workspace', { timeout: 15000 });
+            await page.waitForSelector('.mask-editor__canvas', { timeout: 10000 });
+            await dragLocator(page, page.locator('.mask-editor__canvas').first(), 24, 16);
+            const maskSave = page.waitForResponse((response) => response.url().includes('/mask') && response.request().method() === 'PUT', {
+              timeout: 15000,
+            });
+            await page.locator('.photo-geometry-workspace button', { hasText: 'Save Mask' }).click();
+            const maskResponse = await maskSave;
+            if (!maskResponse.ok()) throw new Error(`Manual mask save failed with HTTP ${maskResponse.status()}`);
+            const maskBody = await maskResponse.json();
+            if (!maskBody.geometry?.revisions?.manualMask) throw new Error('Manual mask save did not increment manualMask revision.');
+            await page.waitForFunction(
+              () => /Mask rev:\s*[1-9]/i.test(document.querySelector('.photo-geometry-workspace')?.textContent || ''),
+              null,
+              { timeout: 15000 }
+            );
+            if (name === 'photo-geometry-contour' || name === 'photo-geometry-reconstruction' || name === 'photo-geometry-reopen') {
+              await page.locator('.photo-geometry-workspace button', { hasText: 'Contour' }).click();
+              await page.waitForSelector('.photo-geometry-workspace .contour-editor__canvas [data-contour-point-id]', { timeout: 10000 });
+              await dragLocator(page, page.locator('.photo-geometry-workspace .contour-editor__canvas [data-contour-point-id]').nth(3), 6, 4);
+              const contourSave = page.waitForResponse((response) => response.url().includes('/contour') && response.request().method() === 'PUT', {
+                timeout: 15000,
+              }).catch(async (err) => {
+                const contourText = await page.locator('.photo-geometry-workspace .contour-editor__validation').textContent().catch(() => '');
+                throw new Error(`${err.message}; contour editor state: ${contourText}`);
+              });
+              await page.locator('.photo-geometry-workspace .contour-editor__toolbar button', { hasText: /^Save$/ }).click();
+              const contourResponse = await contourSave;
+              if (!contourResponse.ok()) throw new Error(`Manual contour save failed with HTTP ${contourResponse.status()}`);
+              const contourBody = await contourResponse.json();
+              if (!contourBody.geometry?.revisions?.manualContour) throw new Error('Manual contour save did not increment manualContour revision.');
+              await page.waitForFunction(
+                () => /Contour rev:\s*[1-9]/i.test(document.querySelector('.photo-geometry-workspace')?.textContent || ''),
+                null,
+                { timeout: 15000 }
+              );
+            }
+            if (name === 'photo-geometry-landmark' || name === 'photo-geometry-reconstruction' || name === 'photo-geometry-reopen') {
+              await page.locator('.photo-geometry-workspace button', { hasText: 'Landmarks' }).click();
+              await page.waitForSelector('.photo-geometry-workspace .landmark-editor__canvas [data-landmark-id]', { timeout: 10000 });
+              await dragLocator(page, page.locator('.photo-geometry-workspace .landmark-editor__canvas [data-landmark-id]').first(), 20, -12);
+              const landmarkPanel = page.locator('.photo-geometry-workspace .interactive-editor', { hasText: 'Landmark Editor' });
+              await landmarkPanel.locator('button', { hasText: 'Lock/Unlock' }).click();
+              const landmarkSave = page.waitForResponse((response) => response.url().includes('/landmarks') && response.request().method() === 'PUT', {
+                timeout: 15000,
+              });
+              await landmarkPanel.locator('button', { hasText: /^Save$/ }).click();
+              const landmarkResponse = await landmarkSave;
+              if (!landmarkResponse.ok()) throw new Error(`Landmark save failed with HTTP ${landmarkResponse.status()}`);
+              const landmarkBody = await landmarkResponse.json();
+              if (!landmarkBody.geometry?.revisions?.landmarks) throw new Error('Landmark save did not increment landmark revision.');
+            }
+            if (name === 'photo-geometry-reconstruction' || name === 'photo-geometry-reopen') {
+              await page.locator('.multi-photo__actions button', { hasText: 'Create Unified Design' }).click();
+              await page.waitForFunction(
+                () => (document.querySelector('.multi-photo__report')?.textContent || '').includes('Unified reconstruction complete.'),
+                null,
+                { timeout: 90000 }
+              );
+            }
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-1b-${name}-${Date.now()}.png`), fullPage: true });
           }
           if (name === 'version-compare' || name === 'autosave-recovery') {
             await page.locator('.version-manager__list').waitFor({ timeout: 10000 });

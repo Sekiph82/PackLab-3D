@@ -1,6 +1,7 @@
 import { formatFileSize } from './FileUploader.js';
 import { mountMaskEditor } from './mask-editor/MaskEditor.js';
 import { mountLandmarkEditor } from './landmark-editor/LandmarkEditor.js';
+import { mountContourEditor } from './contour-editor/ContourEditor.js';
 import { mountOptimizerMonitor } from './reconstruction/OptimizerMonitor.js';
 import { mountProfileEditor } from './editors/profile/ProfileEditor.js';
 import { mountSectionEditor } from './editors/section/SectionEditor.js';
@@ -89,6 +90,8 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     dirty: false,
     lastAutosave: null,
     recovery: null,
+    geometryWorkspace: null,
+    geometryConflict: null,
   };
 
   const root = document.createElement('div');
@@ -142,6 +145,9 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
   const grid = document.createElement('div');
   grid.className = 'multi-photo__grid';
 
+  const geometryWorkspace = document.createElement('div');
+  geometryWorkspace.className = 'photo-geometry-workspace';
+
   const viewAssignmentPanel = document.createElement('div');
   viewAssignmentPanel.className = 'multi-photo__view-assignment';
 
@@ -170,7 +176,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     addFiles(event.dataTransfer.files);
   });
 
-  root.append(input, actions, modeField, counter, error, providerStatus, viewAssignmentPanel, grid, progress, report, nativeEditor);
+  root.append(input, actions, modeField, counter, error, providerStatus, viewAssignmentPanel, grid, geometryWorkspace, progress, report, nativeEditor);
   container.appendChild(root);
   render();
 
@@ -196,6 +202,11 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
 
   function showError(err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (err?.status === 409) {
+      state.geometryConflict = err.detail || { message };
+      render();
+      return;
+    }
     error.textContent = message;
     setStatus(message);
   }
@@ -310,7 +321,10 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
           order: photo.order,
           included: photo.included,
           quality: photo.quality,
-          segmentation: photo.segmentation,
+        segmentation: photo.segmentation,
+          geometry: photo.geometry,
+          contour: photo.contour,
+          landmarks: photo.landmarks,
           camera: photo.camera,
           manualViewOverride: photo.manualViewOverride,
         })),
@@ -424,6 +438,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     const job = await api.startPhotoSegmentation({ projectId: state.projectId });
     const done = await waitForJob(job, t('photos.segmentation', 'Photo segmentation'));
     mergeServerPhotos(done.result?.photos || []);
+    await refreshGeometryForUploadedPhotos();
     render();
   }
 
@@ -466,6 +481,66 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     render();
   }
 
+  async function refreshGeometryForUploadedPhotos() {
+    if (!state.projectId || !api.getPhotoGeometry) return;
+    await Promise.all(state.photos.filter((photo) => photo.uploadedId).map(async (photo) => {
+      try {
+        const result = await api.getPhotoGeometry({ projectId: state.projectId, photoId: photo.uploadedId });
+        applyGeometryResult(photo, result);
+      } catch (_err) {
+        // Geometry is optional until segmentation or manual editing exists.
+      }
+    }));
+  }
+
+  function applyGeometryResult(photo, result) {
+    photo.geometry = result?.geometry || photo.geometry;
+    photo.contour = result?.contour || photo.contour;
+    photo.manualMask = result?.mask || photo.manualMask;
+    photo.landmarks = result?.landmarks || photo.landmarks || result?.landmarks;
+    if (result?.photo?.segmentation) photo.segmentation = result.photo.segmentation;
+  }
+
+  async function saveMaskForPhoto(photo, payload) {
+    if (!photo.uploadedId) await ensureUploaded();
+    const result = await api.updatePhotoMask?.({
+      projectId: state.projectId,
+      photoId: photo.uploadedId,
+      ...payload,
+    });
+    applyGeometryResult(photo, result);
+    markDirty('mask-save');
+    setStatus(t('phase7.mask.saved', 'Manual mask saved and contour recalculated.'));
+    return result;
+  }
+
+  async function saveContourForPhoto(photo, payload) {
+    if (!photo.uploadedId) await ensureUploaded();
+    const result = await api.updatePhotoContour?.({
+      projectId: state.projectId,
+      photoId: photo.uploadedId,
+      ...payload,
+    });
+    applyGeometryResult(photo, result);
+    markDirty('contour-save');
+    setStatus(t('phase7.geometry.contourSaved', 'Manual contour saved and reconstruction marked stale.'));
+    return result;
+  }
+
+  async function saveLandmarksForPhoto(photo, landmarks, meta = {}) {
+    if (!photo.uploadedId) await ensureUploaded();
+    const result = await api.updateLandmarks({
+      projectId: state.projectId,
+      photoId: photo.uploadedId,
+      landmarks,
+      expectedRevision: meta.expectedRevision ?? photo.geometry?.revisions?.landmarks ?? 0,
+    });
+    applyGeometryResult(photo, result);
+    markDirty('landmark-save');
+    setStatus(t('phase7.landmarks.updated', 'Landmark correction saved and locked.'));
+    return result;
+  }
+
   function mergeServerPhotos(serverPhotos) {
     serverPhotos.forEach((serverPhoto) => {
       const local = state.photos.find((photo) => photo.uploadedId === serverPhoto.id);
@@ -473,6 +548,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
       local.quality = serverPhoto.quality || local.quality;
       local.segmentation = serverPhoto.segmentation || local.segmentation;
       local.camera = serverPhoto.camera || local.camera;
+      local.geometry = serverPhoto.geometry || local.geometry;
       if (!local.manualViewOverride && local.camera?.assignedView) {
         local.viewType = local.camera.assignedView;
       }
@@ -511,12 +587,105 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     renderViewAssignmentEditor();
     grid.innerHTML = '';
     state.photos.forEach((photo, index) => grid.appendChild(renderCard(photo, index)));
+    renderGeometryWorkspace();
     if (state.report) {
       report.textContent = reconstructionSummary(state.report);
     } else {
       report.textContent = '';
     }
     renderNativeEditor();
+  }
+
+  function renderGeometryWorkspace() {
+    geometryWorkspace.innerHTML = '';
+    if (!state.geometryWorkspace) return;
+    const photo = state.photos.find((item) => item.id === state.geometryWorkspace.photoId);
+    if (!photo) return;
+    const header = document.createElement('div');
+    header.className = 'photo-geometry-workspace__header';
+    const rev = photo.geometry?.revisions || {};
+    const stale = photo.geometry?.stale || {};
+    header.textContent = [
+      `${t('phase7.geometry.workspace', 'Photo Geometry')}: ${photo.originalName}`,
+      `${t('phase7.geometry.maskRevision', 'Mask rev')}: ${rev.activeMask ?? 0}`,
+      `${t('phase7.geometry.contourRevision', 'Contour rev')}: ${rev.activeContour ?? 0}`,
+      `${t('phase7.geometry.landmarkRevision', 'Landmark rev')}: ${rev.landmarks ?? 0}`,
+      stale.reconstruction ? t('phase7.geometry.reconstructionStale', 'Reconstruction stale') : t('phase7.geometry.reconstructionCurrent', 'Reconstruction current'),
+    ].join(' | ');
+    const tabs = document.createElement('div');
+    tabs.className = 'photo-geometry-workspace__tabs';
+    ['mask', 'contour', 'landmarks'].forEach((tab) => {
+      const btn = button(`phase7.geometry.${tab}`, tab[0].toUpperCase() + tab.slice(1), () => {
+        state.geometryWorkspace.tab = tab;
+        render();
+      });
+      if ((state.geometryWorkspace.tab || 'mask') === tab) btn.classList.add('is-active');
+      tabs.appendChild(btn);
+    });
+    const conflict = renderGeometryConflict();
+    const body = document.createElement('div');
+    body.className = 'photo-geometry-workspace__body';
+    const tab = state.geometryWorkspace.tab || 'mask';
+    if (tab === 'mask') {
+      mountMaskEditor(body, {
+        i18n,
+        photo,
+        onDirty: (event) => markDirty(event.type),
+        onSaveMask: async (payload) => saveMaskForPhoto(photo, payload),
+      });
+    } else if (tab === 'contour') {
+      mountContourEditor(body, {
+        i18n,
+        photo,
+        contour: photo.contour,
+        landmarks: photo.landmarks || [],
+        onDirty: (event) => markDirty(event.type),
+        onSaveContour: async (payload) => saveContourForPhoto(photo, payload),
+        onConflict: (err) => {
+          state.geometryConflict = err.detail || err;
+          render();
+        },
+      });
+    } else {
+      mountLandmarkEditor(body, {
+        i18n,
+        photo,
+        landmarks: photo.landmarks || [],
+        onDirty: (event) => markDirty(event.type),
+        onSave: async (landmarks, meta = {}) => saveLandmarksForPhoto(photo, landmarks, meta),
+      });
+    }
+    const close = button('common.close', 'Close', () => {
+      state.geometryWorkspace = null;
+      render();
+    });
+    geometryWorkspace.append(header, tabs, conflict, body, close);
+  }
+
+  function renderGeometryConflict() {
+    const wrap = document.createElement('div');
+    if (!state.geometryConflict) return wrap;
+    wrap.className = 'photo-geometry-workspace__conflict';
+    wrap.textContent = state.geometryConflict.message || t('phase7.geometry.revisionConflict', 'The geometry was updated elsewhere. Reload before saving.');
+    wrap.append(
+      button('phase7.geometry.reloadServer', 'Reload Server Version', async () => {
+        state.geometryConflict = null;
+        await refreshActiveGeometry();
+      }),
+      button('phase7.geometry.keepLocal', 'Keep Local Copy', () => {
+        state.geometryConflict = null;
+        render();
+      })
+    );
+    return wrap;
+  }
+
+  async function refreshActiveGeometry() {
+    const photo = state.photos.find((item) => item.id === state.geometryWorkspace?.photoId);
+    if (!photo?.uploadedId || !state.projectId) return;
+    const result = await api.getPhotoGeometry({ projectId: state.projectId, photoId: photo.uploadedId });
+    applyGeometryResult(photo, result);
+    render();
   }
 
   function renderViewAssignmentEditor() {
@@ -558,6 +727,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     const editorGrid = document.createElement('div');
     editorGrid.className = 'native-editor__grid';
     const maskHost = document.createElement('div');
+    const contourHost = document.createElement('div');
     const landmarkHost = document.createElement('div');
     const profileHost = document.createElement('div');
     const sectionHost = document.createElement('div');
@@ -565,7 +735,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     const drawingHost = document.createElement('div');
     const versionHost = document.createElement('div');
     const autosaveHost = document.createElement('div');
-    editorGrid.append(maskHost, landmarkHost, profileHost, sectionHost, cageHost, drawingHost, versionHost, autosaveHost);
+    editorGrid.append(maskHost, contourHost, landmarkHost, profileHost, sectionHost, cageHost, drawingHost, versionHost, autosaveHost);
     nativeEditor.appendChild(editorGrid);
 
     if (activePhoto) {
@@ -573,17 +743,17 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
         i18n,
         photo: activePhoto,
         onDirty: (event) => markDirty(event.type),
-        onSaveMask: async (payload) => {
-          if (!activePhoto.uploadedId) await ensureUploaded();
-          const result = await api.updatePhotoMask?.({
-            projectId: state.projectId,
-            photoId: activePhoto.uploadedId,
-            ...payload,
-          });
-          activePhoto.segmentation = result?.photo?.segmentation || { status: 'manual_mask_ready' };
-          activePhoto.manualMask = result?.mask;
-          markDirty('mask-save');
-          setStatus(t('phase7.mask.saved', 'Manual mask saved and contour recalculated.'));
+        onSaveMask: async (payload) => saveMaskForPhoto(activePhoto, payload).then((result) => { render(); return result; }),
+      });
+      mountContourEditor(contourHost, {
+        i18n,
+        photo: activePhoto,
+        contour: activePhoto.contour,
+        landmarks: activePhoto.landmarks || [],
+        onDirty: (event) => markDirty(event.type),
+        onSaveContour: async (payload) => saveContourForPhoto(activePhoto, payload).then((result) => { render(); return result; }),
+        onConflict: (err) => {
+          state.geometryConflict = err.detail || err;
           render();
         },
       });
@@ -592,18 +762,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
         photo: activePhoto,
         landmarks: activePhoto.landmarks || [],
         onDirty: (event) => markDirty(event.type),
-        onSave: async (landmarks) => {
-          if (!activePhoto.uploadedId) await ensureUploaded();
-          const result = await api.updateLandmarks({
-            projectId: state.projectId,
-            photoId: activePhoto.uploadedId,
-            landmarks,
-          });
-          activePhoto.landmarks = result.landmarks;
-          markDirty('landmark-save');
-          setStatus(t('phase7.landmarks.updated', 'Landmark correction saved and locked.'));
-          render();
-        },
+        onSave: async (landmarks, meta = {}) => saveLandmarksForPhoto(activePhoto, landmarks, meta).then((result) => { render(); return result; }),
       });
     }
     if (model) {
@@ -854,6 +1013,16 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     const controls = document.createElement('div');
     controls.className = 'photo-card__controls';
     controls.append(
+      button('phase7.geometry.editGeometry', 'Edit Geometry', async () => {
+        state.selectedPhotoId = photo.id;
+        if (!photo.uploadedId) await ensureUploaded();
+        if (photo.uploadedId && api.getPhotoGeometry) {
+          const result = await api.getPhotoGeometry({ projectId: state.projectId, photoId: photo.uploadedId });
+          applyGeometryResult(photo, result);
+        }
+        state.geometryWorkspace = { photoId: photo.id, tab: 'mask' };
+        render();
+      }),
       button('common.up', 'Up', () => movePhoto(photo.id, -1)),
       button('common.down', 'Down', () => movePhoto(photo.id, 1)),
       button('photos.rotateLeft', 'Rotate L', () => rotatePhoto(photo, -90)),

@@ -1,4 +1,5 @@
-import { actionButton, checksum, clamp, el, localPoint, makePanel, tr } from '../editorUtils.js';
+import { actionButton, checksum, clamp, el, makePanel, tr } from '../editorUtils.js';
+import { createCoordinateMapper } from '../photo-geometry/CoordinateMapper.js';
 
 const WIDTH = 192;
 const HEIGHT = 256;
@@ -31,6 +32,17 @@ export function mountMaskEditor(container, { i18n, photo, onSaveMask, onDirty })
   let undoStack = [];
   let redoStack = [];
   let beforeChecksum = checksum(mask);
+  const revisions = photo?.geometry?.revisions || photo?.manualMask?.revisions || {};
+  let currentRevision = Number(revisions.activeMask ?? revisions.manualMask ?? photo?.manualMask?.revision ?? 0);
+  const mapper = createCoordinateMapper({
+    sourceWidth: photo?.width || photo?.workingWidth || WIDTH,
+    sourceHeight: photo?.height || photo?.workingHeight || HEIGHT,
+    workingWidth: WIDTH,
+    workingHeight: HEIGHT,
+    viewportWidth: WIDTH,
+    viewportHeight: HEIGHT,
+    rotation: photo?.rotation || 0,
+  });
 
   let ctx = null;
   if (!/jsdom/i.test(globalThis.navigator?.userAgent || '')) {
@@ -108,7 +120,7 @@ export function mountMaskEditor(container, { i18n, photo, onSaveMask, onDirty })
 
   function drawAt(event) {
     event.preventDefault();
-    const point = localPoint(event, canvas, WIDTH, HEIGHT);
+    const point = pointForEvent(event);
     const radius = Number(brush.value);
     const value = tool === 'foreground' ? 255 : 0;
     const minY = Math.max(0, Math.floor(point.y - radius));
@@ -189,10 +201,22 @@ export function mountMaskEditor(container, { i18n, photo, onSaveMask, onDirty })
       height: HEIGHT,
       checksum: checksum(mask),
       maskData: Array.from(mask),
+      expectedRevision: currentRevision,
     };
-    await onSaveMask?.(payload);
+    const result = await onSaveMask?.(payload);
+    currentRevision = Number(result?.geometry?.revisions?.activeMask ?? result?.mask?.revision ?? currentRevision + 1);
     beforeChecksum = payload.checksum;
     updateStatus(tr('phase7.mask.saved', 'Manual mask saved and contour recalculated.', i18n));
+  }
+
+  function pointForEvent(event) {
+    const rect = canvas.getBoundingClientRect();
+    const normalized = mapper.canvasCssToNormalized({
+      canvasCssX: event.clientX - rect.left,
+      canvasCssY: event.clientY - rect.top,
+    });
+    const working = mapper.normalizedToWorking(normalized);
+    return { x: working.workingX, y: working.workingY };
   }
 
   function paint() {

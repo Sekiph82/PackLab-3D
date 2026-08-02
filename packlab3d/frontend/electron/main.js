@@ -25,6 +25,38 @@ let startupStartedAt = Date.now();
 const startupEvents = [];
 let isQuitting = false;
 
+function writeEarlyFatal(error, phase = 'main-process') {
+  try {
+    const logDir = ensureLogDir();
+    fs.writeFileSync(
+      path.join(logDir, 'electron-fatal.json'),
+      JSON.stringify(
+        {
+          timestamp: new Date().toISOString(),
+          phase,
+          message: error?.message || String(error),
+          stack: error?.stack || null,
+          argv: process.argv,
+          e2e: process.env.PACKLAB_E2E === '1',
+        },
+        null,
+        2
+      )
+    );
+  } catch (_logError) {
+    // Last-resort crash logging must never become the crash source.
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  writeEarlyFatal(error, 'uncaughtException');
+  throw error;
+});
+
+process.on('unhandledRejection', (reason) => {
+  writeEarlyFatal(reason instanceof Error ? reason : new Error(String(reason)), 'unhandledRejection');
+});
+
 const STARTUP_PROGRESS = {
   'Electron process start': 15,
   'Main process initialization': 18,
@@ -244,7 +276,8 @@ function restartBackend() {
   return backendReadyPromise;
 }
 
-const gotLock = app.requestSingleInstanceLock();
+const isE2ELaunch = process.env.PACKLAB_E2E === '1';
+const gotLock = isE2ELaunch || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {

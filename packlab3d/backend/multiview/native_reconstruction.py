@@ -79,9 +79,23 @@ def analyze_photo_geometry(photo, mask_path: Optional[str] = None) -> dict:
     }
 
 
-def build_native_reconstruction(photos, measurements: dict, dimension_sources: dict) -> tuple[o3d.geometry.TriangleMesh, dict, dict]:
+def build_native_reconstruction(photos, measurements: dict, dimension_sources: dict, reconstruction_input: dict | None = None) -> tuple[o3d.geometry.TriangleMesh, dict, dict]:
     started = time.perf_counter()
-    silhouettes = [analyze_photo_geometry(photo) for photo in photos]
+    input_photos = (reconstruction_input or {}).get("photos", [])
+    if input_photos:
+        by_id = {item["photoId"]: item for item in input_photos}
+        silhouettes = []
+        for photo in photos:
+            input_item = by_id.get(photo.id, {})
+            silhouette = dict(input_item.get("normalizedSilhouette") or analyze_photo_geometry(photo))
+            silhouette.setdefault("photoId", photo.id)
+            silhouette.setdefault("viewType", photo.viewType)
+            silhouette.setdefault("confidence", input_item.get("confidence", 0.35))
+            if "levels" not in silhouette and "widthProfile" in silhouette:
+                silhouette["levels"] = silhouette["widthProfile"]
+            silhouettes.append(silhouette)
+    else:
+        silhouettes = [analyze_photo_geometry(photo) for photo in photos]
     height = _positive(measurements.get("heightMm") or measurements.get("height_mm")) or 120.0
     front_sils = [s for s in silhouettes if s["viewType"] in {"front", "back", "front_left", "front_right"}] or silhouettes
     side_sils = [s for s in silhouettes if s["viewType"] in {"left", "right", "back_left", "back_right"}]
@@ -125,13 +139,24 @@ def build_native_reconstruction(photos, measurements: dict, dimension_sources: d
             "deformationMethod": "section-aware radial falloff",
             "description": "Generic low-resolution deformation cage; not a package-category template.",
         },
-        landmarkConstraints=_landmarks_from_profiles(front_widths, side_widths),
+        landmarkConstraints=_landmarks_from_profiles(front_widths, side_widths) + _input_landmark_constraints(reconstruction_input),
         measurementConstraints=constraints,
         symmetryConstraints={"mode": "auto", "penaltyWeight": 0.35, "assumption": "approximately symmetric"},
         labelRegion={"heightRatioStart": 0.22, "heightRatioEnd": 0.72, "wrapPercent": 62, "source": "estimated"},
     )
     mesh = mesh_from_generic_model(model)
     optimization = _optimization_report(model, silhouettes, started)
+    if reconstruction_input:
+        model_dict = model.to_dict()
+        model_dict["reconstructionInputRevision"] = reconstruction_input.get("revision", 0)
+        model_dict["sourcePhotoGeometryRevisions"] = reconstruction_input.get("photoGeometryRevisions", {})
+        model_dict["landmarkConstraints"] = model.landmarkConstraints
+        optimization["inputProvenance"] = {
+            "revision": reconstruction_input.get("revision", 0),
+            "photoGeometryRevisions": reconstruction_input.get("photoGeometryRevisions", {}),
+            "warnings": reconstruction_input.get("warnings", []),
+        }
+        return mesh, model_dict, optimization
     return mesh, model.to_dict(), optimization
 
 
@@ -268,6 +293,25 @@ def _landmarks_from_profiles(front_widths, side_widths) -> list[dict]:
         {"name": "maximum_width_level", "heightRatio": round(max_idx / max(len(widths) - 1, 1), 4), "confidence": 0.68, "source": "silhouette"},
         {"name": "strong_curvature_change", "heightRatio": round(curvature_idx / max(len(widths) - 1, 1), 4), "confidence": 0.45, "source": "profile-gradient"},
     ]
+
+
+def _input_landmark_constraints(reconstruction_input: dict | None) -> list[dict]:
+    if not reconstruction_input:
+        return []
+    constraints = []
+    for photo in reconstruction_input.get("photos", []):
+        for landmark in photo.get("lockedLandmarks", []) + photo.get("manualLandmarks", []):
+            constraints.append({
+                "name": landmark.get("type", "manual_landmark"),
+                "photoId": photo.get("photoId"),
+                "view": photo.get("view"),
+                "x": round(float(landmark.get("x", 0.5)), 4),
+                "heightRatio": round(float(landmark.get("y", 0.5)), 4),
+                "confidence": round(float(landmark.get("confidence", 1.0)), 3),
+                "source": "locked-user-landmark" if landmark.get("locked") else "manual-user-landmark",
+                "locked": bool(landmark.get("locked")),
+            })
+    return constraints
 
 
 def _control_cage_nodes(cross_sections: list[dict], height: float) -> list[dict]:
