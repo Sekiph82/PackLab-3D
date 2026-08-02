@@ -734,6 +734,21 @@ html, body {
   margin-bottom: 8px;
 }
 
+.optimizer-monitor,
+.drawing-status {
+  border: 1px solid rgba(0, 87, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(0, 87, 255, 0.06);
+  color: #263747;
+  font-size: 11px;
+  line-height: 1.45;
+  margin-bottom: 8px;
+  max-height: 120px;
+  overflow: auto;
+  padding: 8px;
+  white-space: pre-line;
+}
+
 .native-editor__fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));

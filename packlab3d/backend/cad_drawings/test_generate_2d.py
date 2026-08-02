@@ -68,6 +68,7 @@ def test_build_zip_package_contains_expected_files():
             "side.svg", "side.dxf",
             "top.svg", "top.dxf",
             "metadata.json",
+            "validation.json",
         }
         assert len(zf.read("front.svg")) > 0
         assert len(zf.read("front.dxf")) > 0

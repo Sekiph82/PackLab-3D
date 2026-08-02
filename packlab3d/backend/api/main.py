@@ -87,11 +87,32 @@ class EditableModelUpdateRequest(BaseModel):
     widthMm: Optional[float] = None
     depthMm: Optional[float] = None
     profilePoints: list[dict] = []
+    sections: list[dict] = []
+    cageNodes: list[dict] = []
 
 
 class DrawingDocumentUpdateRequest(BaseModel):
     notes: list[dict] = []
+    dimensions: list[dict] = []
+    referenceLines: list[dict] = []
+    sectionLines: list[dict] = []
+    page: dict = {}
     titleBlock: dict = {}
+
+
+class SaveVersionRequest(BaseModel):
+    name: str = ""
+    note: str = ""
+
+
+class CompareVersionsRequest(BaseModel):
+    leftVersionId: str
+    rightVersionId: str
+
+
+class LandmarkUpdateRequest(BaseModel):
+    photoId: str
+    landmarks: list[dict]
 
 
 def _resolve_language(language: Optional[str]) -> str:
@@ -471,6 +492,38 @@ def update_drawing_document(project_id: str, payload: DrawingDocumentUpdateReque
         return multiview_service.update_drawing_document(project_id, payload.model_dump(exclude_none=True))
     except KeyError:
         raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.patch("/projects/{project_id}/landmarks")
+def update_project_landmarks(project_id: str, payload: LandmarkUpdateRequest):
+    try:
+        return multiview_service.update_landmarks(project_id, payload.photoId, payload.landmarks)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
+
+
+@app.post("/projects/{project_id}/versions")
+def save_project_version(project_id: str, payload: SaveVersionRequest):
+    try:
+        return multiview_service.save_version(project_id, payload.name, payload.note)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.post("/projects/{project_id}/versions/compare")
+def compare_project_versions(project_id: str, payload: CompareVersionsRequest):
+    try:
+        return multiview_service.compare_project_versions(project_id, payload.leftVersionId, payload.rightVersionId)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or version not found.")
+
+
+@app.post("/projects/{project_id}/versions/{version_id}/restore")
+def restore_project_version(project_id: str, version_id: str):
+    try:
+        return multiview_service.restore_version(project_id, version_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or version not found.")
 
 
 @app.post("/generate-mesh")

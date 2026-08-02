@@ -71,6 +71,8 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     uploaded: false,
     activeJobId: null,
     report: null,
+    editableModel: null,
+    versionComparison: null,
     reconstructionMode: 'auto',
     capabilities: null,
   };
@@ -229,6 +231,8 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     state.projectId = null;
     state.uploaded = false;
     state.report = null;
+    state.editableModel = null;
+    state.versionComparison = null;
     syncStore();
     render();
   }
@@ -290,8 +294,11 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
           included: photo.included,
           quality: photo.quality,
           segmentation: photo.segmentation,
+          camera: photo.camera,
         })),
         report: state.report,
+        editableModel: state.editableModel,
+        versionComparison: state.versionComparison,
         reconstructionMode: state.reconstructionMode,
       },
       pipeline: { ...(current.pipeline || {}), ...(extra.pipeline || {}) },
@@ -384,6 +391,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     });
     const done = await waitForJob(job, t('reconstruction.unified', 'Unified reconstruction'));
     state.report = done.result?.report || null;
+    state.editableModel = await api.getEditableModel?.(state.projectId);
     const referenceMesh = await api.getProjectAsset({ projectId: state.projectId, assetName: 'referenceMesh' });
     const cleanMesh = await api.getProjectAsset({ projectId: state.projectId, assetName: 'cleanMesh' });
     const glb = await api.getProjectAsset({ projectId: state.projectId, assetName: 'finalMesh' });
@@ -396,6 +404,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
         glb: glb.arrayBuffer,
         drawingZip: drawing.arrayBuffer,
         reconstructionReport: state.report,
+        editableModel: state.editableModel,
       },
     });
     setStatus(`${t('reconstruction.nativeSuccess', 'Unified design generated with PackLab native reconstruction.')}\n${reconstructionSummary(state.report)}`);
@@ -408,6 +417,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
       if (!local) return;
       local.quality = serverPhoto.quality || local.quality;
       local.segmentation = serverPhoto.segmentation || local.segmentation;
+      local.camera = serverPhoto.camera || local.camera;
     });
     syncStore();
   }
@@ -430,6 +440,9 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
       `${t('reconstruction.photosUsed', 'Photos used')}: ${(item.photosUsed || []).length}`,
       `${t('reconstruction.photosExcluded', 'Photos excluded')}: ${(item.photosExcluded || []).length}`,
       `${t('reconstruction.confidence', 'Confidence')}: ${item.confidence}`,
+      `${t('phase7.optimizer.bestError', 'Best error')}: ${item.optimizationReport?.finalError ?? '?'}`,
+      `${t('phase7.optimizer.perViewIou', 'Per-view IoU')}: ${(item.optimizationReport?.perView || []).map((view) => `${view.view} ${view.iou}`).join(', ')}`,
+      `SVG: ${item.drawingValidation?.svg?.valid ? t('common.valid', 'Valid') : t('common.invalid', 'Invalid')} | DXF: ${item.drawingValidation?.dxf?.valid ? t('common.valid', 'Valid') : t('common.invalid', 'Invalid')}`,
       ...(item.limitations || []),
     ].join('\n');
   }
@@ -454,10 +467,13 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     title.className = 'native-editor__title';
     title.textContent = t('reconstruction.editor.title', 'Editable 3D and Linked 2D');
     nativeEditor.appendChild(title);
+    nativeEditor.appendChild(renderOptimizerMonitor());
     const dims = state.report.dimensionsMm || {};
     const heightInput = editorNumber('reconstruction.editor.height', 'Height (mm)', dims.heightMm || 120);
     const widthInput = editorNumber('reconstruction.editor.width', 'Width (mm)', dims.widthMm || 50);
     const depthInput = editorNumber('reconstruction.editor.depth', 'Depth (mm)', dims.depthMm || 35);
+    const sectionInput = editorNumber('phase7.section.width', 'Section width (mm)', dims.widthMm || 50);
+    const cageInput = editorNumber('phase7.cage.delta', 'Cage delta (mm)', 2);
     const applyButton = button('reconstruction.editor.apply', 'Apply 3D Edit', async () => {
       try {
         const result = await api.updateEditableModel({
@@ -479,6 +495,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
           },
           reconstructionModel: result.reconstructionModel,
         };
+        state.editableModel = result;
         syncStore({ pipeline: { ...(store.getState().pipeline || {}), glb: glb.arrayBuffer } });
         setStatus(t('reconstruction.editor.updated', '3D model updated and linked 2D drawing refreshed.'));
         render();
@@ -489,6 +506,9 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     const noteInput = document.createElement('input');
     noteInput.type = 'text';
     noteInput.placeholder = t('reconstruction.editor.notePlaceholder', 'Drawing note');
+    const versionNameInput = document.createElement('input');
+    versionNameInput.type = 'text';
+    versionNameInput.placeholder = t('phase7.version.namePlaceholder', 'Version name');
     const noteButton = button('reconstruction.editor.addNote', 'Add Note', async () => {
       try {
         await api.updateDrawingDocument({
@@ -496,14 +516,159 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
           patch: { notes: [{ text: noteInput.value || t('reconstruction.editor.defaultNote', 'Manual note'), x: 10, y: 10 }] },
         });
         setStatus(t('reconstruction.editor.noteAdded', 'Drawing note added and will persist through model edits.'));
+        state.editableModel = await api.getEditableModel?.(state.projectId);
+        render();
+      } catch (err) {
+        showError(err);
+      }
+    });
+    const sectionButton = button('phase7.section.apply', 'Apply Section Edit', async () => applyAdvancedEdit({
+      sections: [{ id: firstSectionId(), widthMm: Number(sectionInput.input.value) }],
+    }, t('phase7.section.updated', 'Section edit applied and linked drawing updated.')));
+    const cageButton = button('phase7.cage.apply', 'Move Cage Node', async () => applyAdvancedEdit({
+      cageNodes: [{ id: firstCageNodeId(), deltaMm: [Number(cageInput.input.value), 0, Number(cageInput.input.value)] }],
+    }, t('phase7.cage.updated', 'Control cage edit deformed the mesh and refreshed drawings.')));
+    const dimensionButton = button('phase7.dimension.move', 'Move Dimension', async () => {
+      try {
+        await api.updateDrawingDocument({
+          projectId: state.projectId,
+          patch: { dimensions: [{ id: 'dim-overall-height-front', placement: { offset: 42, textOffset: [3, 2] }, suffix: ' REF' }] },
+        });
+        state.editableModel = await api.getEditableModel?.(state.projectId);
+        setStatus(t('phase7.dimension.updated', 'Dimension placement updated and will persist after 3D changes.'));
+        render();
+      } catch (err) {
+        showError(err);
+      }
+    });
+    const sectionLineButton = button('phase7.sectionLine.add', 'Add Section Line', async () => {
+      try {
+        await api.updateDrawingDocument({
+          projectId: state.projectId,
+          patch: { sectionLines: [{ points: [[0, 0], [20, 40]], label: 'A-A' }], referenceLines: [{ type: 'baseline', x1: 0, y1: 0, x2: 40, y2: 0 }] },
+        });
+        state.editableModel = await api.getEditableModel?.(state.projectId);
+        setStatus(t('phase7.sectionLine.updated', 'Section line and linked section view added.'));
+        render();
+      } catch (err) {
+        showError(err);
+      }
+    });
+    const landmarkButton = button('phase7.landmarks.lock', 'Lock Landmark', async () => {
+      try {
+        const photo = state.photos.find((item) => item.uploadedId);
+        if (!photo) return;
+        await api.updateLandmarks({
+          projectId: state.projectId,
+          photoId: photo.uploadedId,
+          landmarks: [{ type: 'shoulder-transition', view: photo.viewType, x: 0.5, y: 0.7, confidence: 1, locked: true }],
+        });
+        setStatus(t('phase7.landmarks.updated', 'Landmark correction saved and locked.'));
+      } catch (err) {
+        showError(err);
+      }
+    });
+    const versionButton = button('phase7.version.save', 'Save Version', async () => {
+      try {
+        const result = await api.saveProjectVersion({ projectId: state.projectId, name: versionNameInput.value || t('phase7.version.defaultName', 'Working Version') });
+        state.editableModel = { ...(state.editableModel || {}), versions: result.versions };
+        setStatus(t('phase7.version.saved', 'Project version saved.'));
+        render();
+      } catch (err) {
+        showError(err);
+      }
+    });
+    const compareButton = button('phase7.version.compare', 'Compare Versions', async () => {
+      try {
+        const versions = state.editableModel?.versions || [];
+        if (versions.length < 2) return;
+        state.versionComparison = await api.compareProjectVersions({
+          projectId: state.projectId,
+          leftVersionId: versions[versions.length - 2].id,
+          rightVersionId: versions[versions.length - 1].id,
+        });
+        setStatus(`${t('phase7.version.compared', 'Versions compared.')}\n${(state.versionComparison.changes || []).join('\n')}`);
+        render();
       } catch (err) {
         showError(err);
       }
     });
     const fields = document.createElement('div');
     fields.className = 'native-editor__fields';
-    fields.append(heightInput.label, widthInput.label, depthInput.label, applyButton, noteInput, noteButton);
+    fields.append(
+      heightInput.label,
+      widthInput.label,
+      depthInput.label,
+      applyButton,
+      sectionInput.label,
+      sectionButton,
+      cageInput.label,
+      cageButton,
+      dimensionButton,
+      noteInput,
+      noteButton,
+      sectionLineButton,
+      landmarkButton,
+      versionNameInput,
+      versionButton,
+      compareButton
+    );
     nativeEditor.appendChild(fields);
+    nativeEditor.appendChild(renderDrawingStatus());
+  }
+
+  async function applyAdvancedEdit(edits, successMessage) {
+    try {
+      const result = await api.updateEditableModel({ projectId: state.projectId, edits });
+      const glb = await api.getProjectAsset({ projectId: state.projectId, assetName: 'finalMesh' });
+      if (viewer) await viewer.loadGlbArrayBuffer(glb.arrayBuffer);
+      state.editableModel = result;
+      state.report = { ...state.report, reconstructionModel: result.reconstructionModel };
+      syncStore({ pipeline: { ...(store.getState().pipeline || {}), glb: glb.arrayBuffer, editableModel: result } });
+      setStatus(successMessage);
+      render();
+    } catch (err) {
+      showError(err);
+    }
+  }
+
+  function renderOptimizerMonitor() {
+    const monitor = document.createElement('div');
+    monitor.className = 'optimizer-monitor';
+    const opt = state.report?.optimizationReport || {};
+    const perView = (opt.perView || []).map((view) => `${view.view}: ${view.iou}`).join(' | ');
+    const terms = Object.entries(opt.objectiveTerms || {}).slice(0, 6).map(([key, value]) => `${key} ${value.weightedContribution}`).join(' | ');
+    monitor.textContent = [
+      `${t('phase7.optimizer.monitor', 'Optimizer Monitor')}: ${opt.optimizer || '?'}`,
+      `${t('phase7.optimizer.iteration', 'Iteration')}: ${opt.iterationCount || 0}/${opt.settings?.maxIterations || 0}`,
+      `${t('phase7.optimizer.bestError', 'Best error')}: ${opt.finalError ?? '?'}`,
+      `${t('phase7.optimizer.perViewIou', 'Per-view IoU')}: ${perView || '?'}`,
+      `${t('phase7.optimizer.objectiveTerms', 'Objective terms')}: ${terms || '?'}`,
+    ].join('\n');
+    return monitor;
+  }
+
+  function renderDrawingStatus() {
+    const status = document.createElement('div');
+    status.className = 'drawing-status';
+    const drawing = state.editableModel?.drawingDocument || {};
+    const versions = state.editableModel?.versions || [];
+    status.textContent = [
+      `${t('phase7.drawing.dimensions', 'Dimensions')}: ${(drawing.dimensions || []).length}`,
+      `${t('phase7.drawing.notes', 'Notes')}: ${(drawing.notes || []).length}`,
+      `${t('phase7.drawing.sectionViews', 'Section views')}: ${(drawing.sectionViews || []).length}`,
+      `${t('phase7.version.versions', 'Versions')}: ${versions.length}`,
+      state.versionComparison ? `${t('phase7.version.changeSummary', 'Change summary')}: ${(state.versionComparison.changes || []).join('; ')}` : '',
+    ].filter(Boolean).join('\n');
+    return status;
+  }
+
+  function firstSectionId() {
+    return state.editableModel?.reconstructionModel?.crossSections?.[Math.floor((state.editableModel?.reconstructionModel?.crossSections?.length || 1) / 2)]?.id || 'section-12';
+  }
+
+  function firstCageNodeId() {
+    return state.editableModel?.controlCage?.nodes?.[0]?.id || state.editableModel?.reconstructionModel?.controlCage?.nodes?.[0]?.id || 'cage-00-front';
   }
 
   function editorNumber(key, fallback, value) {
@@ -599,7 +764,17 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
 
     const status = document.createElement('div');
     status.className = 'photo-card__status';
-    status.textContent = `${t('photos.quality', 'Quality')}: ${photo.quality?.status || 'not_analyzed'} | ${t('photos.mask', 'Mask')}: ${photo.segmentation?.status || 'not_processed'}`;
+    const metrics = photo.quality?.metrics || {};
+    const duplicate = photo.quality?.duplicate;
+    status.textContent = [
+      `${t('photos.quality', 'Quality')}: ${photo.quality?.status || 'not_analyzed'} ${photo.quality?.overallScore ?? photo.quality?.qualityScore ?? ''}`,
+      `${t('phase7.quality.sharpness', 'Sharpness')}: ${metrics.sharpness ?? metrics.blurScore ?? '?'}`,
+      `${t('phase7.quality.coverage', 'Coverage')}: ${metrics.objectCoverage ?? '?'}`,
+      `${t('phase7.view.assigned', 'Assigned view')}: ${photo.camera?.assignedView || photo.viewType}`,
+      `${t('photos.mask', 'Mask')}: ${photo.segmentation?.status || 'not_processed'}`,
+      duplicate ? `${t('phase7.duplicate.warning', 'Duplicate warning')}: ${duplicate.type} ${duplicate.similarity}` : '',
+      ...(photo.quality?.warnings || []).slice(0, 2),
+    ].filter(Boolean).join(' | ');
 
     const controls = document.createElement('div');
     controls.className = 'photo-card__controls';

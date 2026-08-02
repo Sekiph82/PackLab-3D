@@ -149,6 +149,42 @@ export function createApiClient(baseUrl) {
       return res.json();
     },
 
+    async updateLandmarks({ projectId, photoId, landmarks }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/landmarks`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoId, landmarks }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async saveProjectVersion({ projectId, name, note = '' }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/versions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, note }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async compareProjectVersions({ projectId, leftVersionId, rightVersionId }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/versions/compare`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leftVersionId, rightVersionId }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async restoreProjectVersion({ projectId, versionId }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/versions/${versionId}/restore`, { method: 'POST' });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
     async getCapabilities({ refresh = false } = {}) {
       const res = await fetch(`${baseUrl}/capabilities${refresh ? '?refresh=true' : ''}`);
       if (!res.ok) throw new Error((await res.json()).detail || res.statusText);

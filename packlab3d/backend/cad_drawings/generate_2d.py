@@ -14,6 +14,7 @@ from packlab3d.backend.cad_drawings.mesh_projection import (
 )
 from packlab3d.backend.cad_drawings.occ_solid import convert_mesh_to_solid
 from packlab3d.backend.mesh_scaling.scaling import estimated_volume_ml, get_bounding_size
+from packlab3d.backend.multiview.drawing_workspace import export_validation_report
 
 
 class CadBackend(str, enum.Enum):
@@ -63,7 +64,9 @@ def generate_technical_drawing_package(
         "wall_thickness_mm": wall_thickness_mm,
     }
 
-    return {"views": views, "solid": solid, "metadata": metadata}
+    package = {"views": views, "solid": solid, "metadata": metadata}
+    package["validation"] = export_validation_report(package)
+    return package
 
 
 def build_zip_package(package: dict) -> bytes:
@@ -77,11 +80,12 @@ def build_zip_package(package: dict) -> bytes:
         if package["solid"].get("iges"):
             zf.writestr("solid.iges", package["solid"]["iges"])
         zf.writestr("metadata.json", json.dumps(package["metadata"], indent=2))
+        zf.writestr("validation.json", json.dumps(package.get("validation", {}), indent=2))
     return buf.getvalue()
 
 
 def count_files(package: dict) -> int:
-    count = len(package["views"]) * 2 + 1  # svg+dxf per view, + metadata.json
+    count = len(package["views"]) * 2 + 2  # svg+dxf per view, + metadata.json + validation.json
     if package["solid"].get("step"):
         count += 1
     if package["solid"].get("iges"):

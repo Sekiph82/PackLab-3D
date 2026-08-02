@@ -164,6 +164,62 @@
       "noteAdded": "Drawing note added and will persist through model edits."
     }
   },
+  "phase7": {
+    "quality": {
+      "sharpness": "Sharpness",
+      "coverage": "Coverage"
+    },
+    "duplicate": {
+      "warning": "Duplicate warning"
+    },
+    "view": {
+      "assigned": "Assigned view"
+    },
+    "optimizer": {
+      "monitor": "Optimizer Monitor",
+      "iteration": "Iteration",
+      "bestError": "Best error",
+      "perViewIou": "Per-view IoU",
+      "objectiveTerms": "Objective terms"
+    },
+    "section": {
+      "width": "Section width (mm)",
+      "apply": "Apply Section Edit",
+      "updated": "Section edit applied and linked drawing updated."
+    },
+    "cage": {
+      "delta": "Cage delta (mm)",
+      "apply": "Move Cage Node",
+      "updated": "Control cage edit deformed the mesh and refreshed drawings."
+    },
+    "dimension": {
+      "move": "Move Dimension",
+      "updated": "Dimension placement updated and will persist after 3D changes."
+    },
+    "sectionLine": {
+      "add": "Add Section Line",
+      "updated": "Section line and linked section view added."
+    },
+    "landmarks": {
+      "lock": "Lock Landmark",
+      "updated": "Landmark correction saved and locked."
+    },
+    "drawing": {
+      "dimensions": "Dimensions",
+      "notes": "Notes",
+      "sectionViews": "Section views"
+    },
+    "version": {
+      "namePlaceholder": "Version name",
+      "save": "Save Version",
+      "defaultName": "Working Version",
+      "saved": "Project version saved.",
+      "compare": "Compare Versions",
+      "compared": "Versions compared.",
+      "versions": "Versions",
+      "changeSummary": "Change summary"
+    }
+  },
   "labelMapping": {
     "title": "Label Mapping",
     "applyTo3d": "Apply Label to 3D",
@@ -211,6 +267,8 @@
     "notInstalled": "Not installed",
     "available": "Available",
     "unavailable": "Unavailable",
+    "valid": "Valid",
+    "invalid": "Invalid",
     "notRequired": "Not required",
     "retry": "Retry",
     "timedOut": "Timed Out",

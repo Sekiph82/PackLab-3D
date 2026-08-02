@@ -22,6 +22,20 @@ from packlab3d.backend.cad_drawings.generate_2d import (
 )
 from packlab3d.backend.label_mapping.export_glb import validate_glb
 from packlab3d.backend.mesh_cleanup.cleanup import cleanup_mesh
+from packlab3d.backend.multiview.analysis_engine import (
+    analyze_quality,
+    assign_views,
+    build_duplicate_reports,
+    same_object_analysis,
+    view_coverage,
+)
+from packlab3d.backend.multiview.drawing_workspace import (
+    apply_drawing_patch,
+    autosave_metadata,
+    build_drawing_document,
+    compare_versions,
+    create_version_snapshot,
+)
 from packlab3d.backend.multiview.native_reconstruction import analyze_photo_geometry, build_native_reconstruction, mesh_from_generic_model
 
 SUPPORTED_IMAGE_TYPES = {
@@ -80,18 +94,28 @@ class ProjectRecord:
     rootPath: str
     photos: list[PhotoRecord] = field(default_factory=list)
     photoAnalysis: dict = field(default_factory=dict)
+    sameObjectAnalysis: dict = field(default_factory=dict)
+    viewAssignments: dict = field(default_factory=dict)
+    masks: dict = field(default_factory=dict)
+    contours: dict = field(default_factory=dict)
     silhouettes: dict = field(default_factory=dict)
     landmarks: dict = field(default_factory=dict)
+    cameraEstimates: dict = field(default_factory=dict)
     measurements: dict = field(default_factory=dict)
     measurementLocks: dict = field(default_factory=dict)
     reconstruction: dict = field(default_factory=dict)
     reconstructionModel: dict = field(default_factory=dict)
     optimizationReport: dict = field(default_factory=dict)
+    optimizationRuns: list[dict] = field(default_factory=list)
     editable3DState: dict = field(default_factory=dict)
+    controlCage: dict = field(default_factory=dict)
     drawingDocument: dict = field(default_factory=dict)
+    drawingLayout: dict = field(default_factory=dict)
     labelRegion: dict = field(default_factory=dict)
     editHistory: list[dict] = field(default_factory=list)
     versions: list[dict] = field(default_factory=list)
+    autosaveMetadata: dict = field(default_factory=dict)
+    exports: list[dict] = field(default_factory=list)
     assets: dict = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -129,10 +153,11 @@ class MultiViewProjectService:
             (project_root / child).mkdir(parents=True, exist_ok=True)
         project = ProjectRecord(
             id=project_id,
-            version=3,
+            version=4,
             projectName=project_name or "Untitled PackLab 3D Project",
             packageType=package_type or "bottle",
             rootPath=str(project_root),
+            autosaveMetadata=autosave_metadata(),
         )
         with self._lock:
             self._projects[project_id] = project
@@ -236,6 +261,14 @@ class MultiViewProjectService:
                 continue
             if "viewType" in update:
                 photo.viewType = _normalize_view_type(update["viewType"])
+                photo.camera["manualOverride"] = True
+                photo.camera["assignedView"] = photo.viewType
+                project.viewAssignments[photo.id] = {
+                    "assignedView": photo.viewType,
+                    "confidence": 1.0,
+                    "alternatives": [],
+                    "reasoning": ["manual user override"],
+                }
             if "included" in update:
                 photo.included = bool(update["included"])
             if "order" in update:
@@ -297,9 +330,14 @@ class MultiViewProjectService:
         return {
             "projectId": project.id,
             "reconstructionModel": project.reconstructionModel,
+            "optimizationReport": project.optimizationReport,
             "editable3DState": project.editable3DState,
+            "controlCage": project.controlCage,
             "drawingDocument": project.drawingDocument,
+            "drawingLayout": project.drawingLayout,
             "labelRegion": project.labelRegion,
+            "versions": project.versions,
+            "autosaveMetadata": project.autosaveMetadata,
         }
 
     def update_editable_model(self, project_id: str, edits: dict) -> dict:
@@ -337,27 +375,104 @@ class MultiViewProjectService:
                         old = item["halfExtentMm"]
                         item["halfExtentMm"] = round(half_extent, 3)
                         operations.append({"type": "move-profile-point", "target": target_id, "before": old, "after": item["halfExtentMm"]})
+        for section_edit in edits.get("sections", []) or []:
+            section_id = section_edit.get("id")
+            for section in model.get("crossSections", []):
+                if section["id"] != section_id or section.get("locked"):
+                    continue
+                before = dict(section)
+                if _positive(section_edit.get("widthMm")) is not None:
+                    section["widthMm"] = round(float(section_edit["widthMm"]), 3)
+                if _positive(section_edit.get("depthMm")) is not None:
+                    section["depthMm"] = round(float(section_edit["depthMm"]), 3)
+                if "heightRatio" in section_edit:
+                    section["heightRatio"] = round(max(0.0, min(1.0, float(section_edit["heightRatio"]))), 4)
+                operations.append({"type": "edit-section", "target": section_id, "before": before, "after": dict(section)})
+        for cage_edit in edits.get("cageNodes", []) or []:
+            node_id = cage_edit.get("id")
+            delta = cage_edit.get("deltaMm") or [0, 0, 0]
+            node = next((item for item in model.get("controlCage", {}).get("nodes", []) if item.get("id") == node_id), None)
+            if not node or node.get("pinned"):
+                continue
+            before = list(node.get("positionMm", [0, 0, 0]))
+            after = [round(float(before[idx]) + float(delta[idx]), 3) for idx in range(3)]
+            node["positionMm"] = after
+            _apply_cage_node_to_sections(model, node, delta)
+            operations.append({"type": "move-cage-node", "target": node_id, "before": before, "after": after, "deformation": "section-aware radial falloff"})
         if not operations:
             return self.editable_model(project_id)
+        project.versions.append(create_version_snapshot(project, "Automatic snapshot before edit", "Created before 3D edit", project.versions[-1]["id"] if project.versions else None))
         project.reconstructionModel = model
         project.editHistory.extend(operations)
+        project.editable3DState["historySize"] = len(project.editHistory)
+        project.editable3DState["lastOperation"] = operations[-1]["type"]
         self._persist_model_outputs(project)
         self._save_project(project)
         return self.editable_model(project_id)
 
     def update_drawing_document(self, project_id: str, patch: dict) -> dict:
         project = self.get_project(project_id)
-        document = json.loads(json.dumps(project.drawingDocument or {}))
-        notes = document.setdefault("notes", [])
-        for note in patch.get("notes", []) or []:
-            if "id" not in note:
-                note = {**note, "id": f"note-{uuid.uuid4().hex[:8]}"}
-            notes.append(note)
-        if "titleBlock" in patch:
-            document["titleBlock"] = {**document.get("titleBlock", {}), **patch["titleBlock"]}
+        document = apply_drawing_patch(project.drawingDocument or {}, patch)
         project.drawingDocument = document
+        project.drawingLayout = document.get("page", {})
+        project.editHistory.append({"type": "drawing-patch", "patchKeys": sorted(patch.keys()), "timestamp": time.time()})
         self._save_project(project)
         return {"projectId": project.id, "drawingDocument": document}
+
+    def save_version(self, project_id: str, name: str, note: str = "") -> dict:
+        project = self.get_project(project_id)
+        parent = project.versions[-1]["id"] if project.versions else None
+        snapshot = create_version_snapshot(project, name or f"Version {len(project.versions) + 1}", note, parent)
+        project.versions.append(snapshot)
+        project.editable3DState["currentVersion"] = snapshot["id"]
+        self._save_project(project)
+        return {"projectId": project.id, "version": snapshot, "versions": project.versions}
+
+    def compare_project_versions(self, project_id: str, left_id: str, right_id: str) -> dict:
+        project = self.get_project(project_id)
+        by_id = {version["id"]: version for version in project.versions}
+        if left_id not in by_id or right_id not in by_id:
+            raise KeyError("version")
+        return compare_versions(by_id[left_id], by_id[right_id])
+
+    def restore_version(self, project_id: str, version_id: str) -> dict:
+        project = self.get_project(project_id)
+        by_id = {version["id"]: version for version in project.versions}
+        if version_id not in by_id:
+            raise KeyError(version_id)
+        project.versions.append(create_version_snapshot(project, "Automatic snapshot before restore", "Created before version restore", project.versions[-1]["id"] if project.versions else None))
+        snapshot = by_id[version_id]
+        project.reconstructionModel = json.loads(json.dumps(snapshot.get("model") or {}))
+        project.reconstruction = json.loads(json.dumps(snapshot.get("reconstructionState") or {}))
+        project.editable3DState = json.loads(json.dumps(snapshot.get("editable3DState") or {}))
+        project.drawingDocument = json.loads(json.dumps(snapshot.get("drawingState") or {}))
+        project.measurements = json.loads(json.dumps(snapshot.get("measurementState") or {}))
+        project.labelRegion = json.loads(json.dumps(snapshot.get("labelRegion") or {}))
+        project.editable3DState["currentVersion"] = version_id
+        if project.reconstructionModel:
+            self._persist_model_outputs(project)
+        self._save_project(project)
+        return self.editable_model(project_id)
+
+    def update_landmarks(self, project_id: str, photo_id: str, landmarks: list[dict]) -> dict:
+        project = self.get_project(project_id)
+        normalized = []
+        for landmark in landmarks:
+            item = {
+                "id": landmark.get("id") or f"landmark-{uuid.uuid4().hex[:8]}",
+                "type": landmark.get("type") or landmark.get("name") or "custom",
+                "view": landmark.get("view") or "custom",
+                "x": float(landmark.get("x", 0.5)),
+                "y": float(landmark.get("y", 0.5)),
+                "confidence": float(landmark.get("confidence", 1.0)),
+                "source": landmark.get("source", "manual"),
+                "locked": bool(landmark.get("locked", False)),
+            }
+            normalized.append(item)
+        project.landmarks[photo_id] = normalized
+        project.editHistory.append({"type": "landmark-edit", "photoId": photo_id, "count": len(normalized), "timestamp": time.time()})
+        self._save_project(project)
+        return {"projectId": project.id, "photoId": photo_id, "landmarks": normalized}
 
     def _run_job(self, job_id: str, payload: dict) -> None:
         job = self._jobs[job_id]
@@ -382,30 +497,55 @@ class MultiViewProjectService:
         project = self.get_project(job.projectId)
         photos = self._included_photos(job.projectId)
         self._progress(job, "validating", "Validating photos", 5, total=len(photos))
-        hashes = {}
-        aspect_ratios = []
-        histograms = []
+        signals = []
         for index, photo in enumerate(photos):
             self._check_cancelled(job)
             self._progress(job, "analyzing_quality", f"Analyzing photo {index + 1} of {len(photos)}", 10 + int(index / max(len(photos), 1) * 55), completed=index, total=len(photos))
             image = Image.open(photo.workingPath).convert("RGB")
-            photo.quality = _quality_report(photo.id, image)
-            aspect_ratios.append(image.width / max(image.height, 1))
-            histograms.append(_small_histogram(image))
-            if photo.sha256 in hashes:
-                photo.quality["warnings"].append(f"Near duplicate of {hashes[photo.sha256]}.")
-                photo.quality["metrics"]["duplicateProbability"] = 1.0
-            hashes[photo.sha256] = photo.id
-        warnings = _same_object_warnings(photos, aspect_ratios, histograms)
-        same_object = _same_object_report(photos, aspect_ratios, histograms)
+            photo.quality, signal = analyze_quality(photo.id, image)
+            signals.append(signal)
+        duplicates = build_duplicate_reports(signals)
+        for photo in photos:
+            if duplicates.get(photo.id):
+                match = duplicates[photo.id][0]
+                photo.quality["duplicate"] = match
+                photo.quality["warnings"].append(f"{match['type']} of {match['duplicateOf']}; review whether both views are needed.")
+                photo.quality["metrics"]["duplicateProbability"] = match["similarity"]
+        same_object = same_object_analysis(signals)
+        assignments = assign_views(
+            signals,
+            {photo.id: photo.viewType for photo in photos},
+            manual=[photo.id for photo in photos if photo.camera.get("manualOverride")],
+        )
+        coverage = view_coverage(assignments)
+        for photo in photos:
+            assignment = assignments.get(photo.id)
+            if assignment and not photo.camera.get("manualOverride"):
+                photo.viewType = assignment["assignedView"]
+            photo.camera = {
+                **photo.camera,
+                **(assignment or {}),
+                "viewSuggestion": assignment.get("assignedView") if assignment else photo.viewType,
+                "viewCoverage": coverage,
+                "rollCorrectionDeg": photo.quality["metrics"].get("cameraRoll", 0),
+                "perspectiveSeverity": photo.quality["metrics"].get("perspectiveSeverity", 0),
+                "orthographicLike": (assignment or {}).get("orthographicSuitability", 0) >= 0.75,
+            }
+        warnings = _same_object_warnings_from_report(same_object)
         project.photoAnalysis = {
             "photos": {photo.id: photo.quality for photo in photos},
             "sameObject": same_object,
-            "algorithm": "Pillow histogram, aspect-ratio, edge, exposure, and coverage metrics",
+            "duplicates": duplicates,
+            "viewAssignments": assignments,
+            "viewCoverage": coverage,
+            "algorithm": "Deterministic Pillow/NumPy quality, perceptual hash, histogram, silhouette and view-diversity metrics",
         }
+        project.sameObjectAnalysis = same_object
+        project.viewAssignments = assignments
+        project.cameraEstimates = {photo.id: photo.camera for photo in photos}
         project.warnings = [warning for warning in project.warnings if "different object" not in warning.lower()] + warnings
         self._save_project(project)
-        job.result = {"photos": [asdict(photo) for photo in photos], "warnings": warnings, "sameObject": same_object}
+        job.result = {"photos": [asdict(photo) for photo in photos], "warnings": warnings, "sameObject": same_object, "duplicates": duplicates, "viewCoverage": coverage}
         self._progress(job, "checking_consistency", "Checking object consistency", 90, completed=len(photos), total=len(photos), warnings=warnings)
 
     def _run_segmentation(self, job: JobRecord) -> None:
@@ -426,10 +566,24 @@ class MultiViewProjectService:
                 "requiresManualReview": bbox is None,
                 "warnings": [] if bbox else ["Classical contour fallback could not isolate the object confidently."],
             }
+            project.masks[photo.id] = {
+                "originalMaskPath": str(mask_path),
+                "cleanedMaskPath": str(mask_path),
+                "manualOverride": False,
+                "bbox": bbox,
+                "toolsAvailable": ["brush-add", "brush-remove", "polygon-add", "polygon-subtract", "fill-hole", "remove-component"],
+            }
             if bbox:
                 silhouette = analyze_photo_geometry(photo, mask_path=str(mask_path))
                 project.silhouettes[photo.id] = silhouette
                 project.landmarks[photo.id] = _photo_landmarks_from_silhouette(silhouette)
+                project.contours[photo.id] = {
+                    "rawContour": silhouette.get("levels", []),
+                    "simplifiedContour": silhouette.get("levels", []),
+                    "normalizedContour": silhouette,
+                    "confidence": silhouette["confidence"],
+                    "sourcePixelMapping": {"workingWidth": photo.workingWidth, "workingHeight": photo.workingHeight},
+                }
                 photo.segmentation["contourConfidence"] = silhouette["confidence"]
         self._save_project(project)
         job.result = {"photos": [asdict(photo) for photo in photos]}
@@ -439,6 +593,8 @@ class MultiViewProjectService:
         photos = self._included_photos(job.projectId)
         if not photos:
             raise ValueError("At least one included photo is required.")
+        if project.reconstructionModel:
+            project.versions.append(create_version_snapshot(project, "Automatic snapshot before reconstruction", "Created before reconstruction job", project.versions[-1]["id"] if project.versions else None))
         self._progress(job, "aligning_views", "Aligning usable views", 12, total=len(photos))
         measurements = payload.get("measurements") or {}
         package_type = payload.get("packageType") or project.packageType or "custom"
@@ -487,8 +643,11 @@ class MultiViewProjectService:
             "limitations": limitations,
             "reconstructionModel": reconstruction_model,
             "optimizationReport": optimization_report,
+            "sameObjectAnalysis": project.sameObjectAnalysis,
+            "viewAssignments": project.viewAssignments,
             "cleanupReport": cleanup_report,
             "glbValidation": glb_validation,
+            "drawingValidation": drawing_package.get("validation", {}),
         }
         report_path = Path(project.rootPath) / "results" / "reconstruction_report.json"
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -504,16 +663,25 @@ class MultiViewProjectService:
         }
         project.reconstructionModel = reconstruction_model
         project.optimizationReport = optimization_report
+        project.optimizationRuns.append(optimization_report)
         project.editable3DState = {
             "profileEditing": True,
             "crossSectionEditing": True,
             "controlCageEditing": True,
-            "undoRedoReady": False,
+            "selectionModes": ["object", "region", "profile-point", "section", "cage-node", "landmark", "label-area"],
+            "undoRedoReady": True,
             "currentVersion": "fit-001",
+            "historySize": len(project.editHistory),
         }
-        project.drawingDocument = _drawing_document_from_package(drawing_package, reconstruction_model)
+        project.controlCage = reconstruction_model.get("controlCage", {})
+        project.drawingDocument = build_drawing_document(drawing_package, reconstruction_model, project.drawingDocument)
+        project.drawingLayout = project.drawingDocument.get("page", {})
         project.labelRegion = reconstruction_model.get("labelRegion", {})
-        project.versions = [{"id": "fit-001", "name": "Initial native fit", "method": method}]
+        if not project.versions:
+            initial = create_version_snapshot(project, "Initial native fit", "Created from reconstruction", None)
+            initial["id"] = "fit-001"
+            project.versions = [initial]
+        project.autosaveMetadata = autosave_metadata()
         project.assets = {
             "referenceMesh": str(reference_path),
             "cleanMesh": str(clean_path),
@@ -538,11 +706,11 @@ class MultiViewProjectService:
         drawing_zip = build_zip_package(drawing_package)
         drawing_path = Path(project.rootPath) / "results" / "technical_drawing.zip"
         drawing_path.write_bytes(drawing_zip)
-        previous_notes = (project.drawingDocument or {}).get("notes", [])
-        project.drawingDocument = _drawing_document_from_package(drawing_package, project.reconstructionModel)
-        project.drawingDocument["notes"] = previous_notes
+        project.drawingDocument = build_drawing_document(drawing_package, project.reconstructionModel, project.drawingDocument)
+        project.drawingLayout = project.drawingDocument.get("page", {})
         project.optimizationReport.setdefault("editUpdates", []).append({"operations": len(project.editHistory), "cleanup": cleanup_report})
         project.assets.update({"cleanMesh": str(clean_path), "finalMesh": str(glb_path), "drawingPackage": str(drawing_path)})
+        project.exports.append({"type": "drawing-validation", "validation": drawing_package.get("validation", {}), "timestamp": time.time()})
 
     def _included_photos(self, project_id: str) -> list[PhotoRecord]:
         return [photo for photo in self.get_project(project_id).photos if photo.included]
@@ -593,21 +761,34 @@ class MultiViewProjectService:
             rootPath=data.get("rootPath", str(project_path.parent)),
             photos=[PhotoRecord(**photo) for photo in data.get("photos", [])],
             photoAnalysis=data.get("photoAnalysis", {}),
+            sameObjectAnalysis=data.get("sameObjectAnalysis", data.get("photoAnalysis", {}).get("sameObject", {})),
+            viewAssignments=data.get("viewAssignments", data.get("photoAnalysis", {}).get("viewAssignments", {})),
+            masks=data.get("masks", {}),
+            contours=data.get("contours", {}),
             silhouettes=data.get("silhouettes", {}),
             landmarks=data.get("landmarks", {}),
+            cameraEstimates=data.get("cameraEstimates", {}),
             measurements=data.get("measurements", {}),
             measurementLocks=data.get("measurementLocks", {}),
             reconstruction=data.get("reconstruction", {}),
             reconstructionModel=data.get("reconstructionModel", {}),
             optimizationReport=data.get("optimizationReport", {}),
+            optimizationRuns=data.get("optimizationRuns", []),
             editable3DState=data.get("editable3DState", {}),
+            controlCage=data.get("controlCage", data.get("reconstructionModel", {}).get("controlCage", {})),
             drawingDocument=data.get("drawingDocument", {}),
+            drawingLayout=data.get("drawingLayout", data.get("drawingDocument", {}).get("page", {})),
             labelRegion=data.get("labelRegion", {}),
             editHistory=data.get("editHistory", []),
             versions=data.get("versions", []),
+            autosaveMetadata=data.get("autosaveMetadata", autosave_metadata()),
+            exports=data.get("exports", []),
             assets=data.get("assets", {}),
             warnings=data.get("warnings", []),
         )
+        if project.version < 4:
+            project.version = 4
+            self._save_project(project)
         with self._lock:
             self._projects[project_id] = project
         return project
@@ -740,6 +921,17 @@ def _same_object_report(photos: list[PhotoRecord], aspect_ratios: list[float], h
     return reports
 
 
+def _same_object_warnings_from_report(report: dict) -> list[str]:
+    warnings = []
+    for item in report.get("photos", []):
+        if item.get("status") in {"probably-different", "different"}:
+            conflicts = "; ".join(item.get("conflicts", [])) or "low same-object probability"
+            warnings.append(f"{item['photoId']} may show a different object from the rest of the photo set: {conflicts}.")
+        elif item.get("status") == "uncertain":
+            warnings.append(f"{item['photoId']} needs same-object review before reconstruction.")
+    return warnings
+
+
 def _classical_mask(image: Image.Image) -> tuple[Image.Image, Optional[list[int]]]:
     rgb = image.convert("RGB")
     bg = Image.new("RGB", rgb.size, tuple(int(value) for value in ImageStat.Stat(rgb).median[:3]))
@@ -760,10 +952,12 @@ def _photo_landmarks_from_silhouette(silhouette: dict) -> list[dict]:
     gradients = np.abs(np.diff(widths))
     curvature_idx = int(np.argmax(gradients)) if len(gradients) else max_idx
     return [
-        {"name": "highest_visible_point", "x": silhouette["centerlineX"], "y": 1.0, "confidence": silhouette["confidence"], "source": silhouette["photoId"]},
-        {"name": "lowest_support_plane", "x": silhouette["centerlineX"], "y": 0.0, "confidence": silhouette["confidence"], "source": silhouette["photoId"]},
-        {"name": "maximum_width_level", "x": silhouette["centerlineX"], "y": levels[max_idx]["y"], "confidence": silhouette["confidence"], "source": silhouette["photoId"]},
-        {"name": "strong_curvature_change", "x": silhouette["centerlineX"], "y": levels[curvature_idx]["y"], "confidence": round(silhouette["confidence"] * 0.7, 3), "source": silhouette["photoId"]},
+        {"id": f"{silhouette['photoId']}-top", "type": "highest-visible-point", "view": silhouette["viewType"], "x": silhouette["centerlineX"], "y": 1.0, "confidence": silhouette["confidence"], "source": "automatic", "locked": False},
+        {"id": f"{silhouette['photoId']}-support", "type": "bottom-support-plane", "view": silhouette["viewType"], "x": silhouette["centerlineX"], "y": 0.0, "confidence": silhouette["confidence"], "source": "automatic", "locked": False},
+        {"id": f"{silhouette['photoId']}-max-width", "type": "maximum-width-height", "view": silhouette["viewType"], "x": silhouette["centerlineX"], "y": levels[max_idx]["y"], "confidence": silhouette["confidence"], "source": "automatic", "locked": False},
+        {"id": f"{silhouette['photoId']}-curvature", "type": "major-curvature-change", "view": silhouette["viewType"], "x": silhouette["centerlineX"], "y": levels[curvature_idx]["y"], "confidence": round(silhouette["confidence"] * 0.7, 3), "source": "automatic", "locked": False},
+        {"id": f"{silhouette['photoId']}-label-top", "type": "labelable-area-top", "view": silhouette["viewType"], "x": silhouette["centerlineX"], "y": 0.72, "confidence": round(silhouette["confidence"] * 0.55, 3), "source": "automatic", "locked": False},
+        {"id": f"{silhouette['photoId']}-label-bottom", "type": "labelable-area-bottom", "view": silhouette["viewType"], "x": silhouette["centerlineX"], "y": 0.22, "confidence": round(silhouette["confidence"] * 0.55, 3), "source": "automatic", "locked": False},
     ]
 
 
@@ -785,6 +979,23 @@ def _infer_dimensions(photos: list[PhotoRecord], measurements: dict, package_typ
         "depthMm": "measured" if _positive(measurements.get("depthMm") or measurements.get("depth_mm") or measurements.get("diameterMm") or measurements.get("diameter_mm")) else "estimated-from-side-or-proportion",
     }
     return dimensions, sources
+
+
+def _apply_cage_node_to_sections(model: dict, node: dict, delta: list[float]) -> None:
+    section_id = node.get("sectionId")
+    section = next((item for item in model.get("crossSections", []) if item.get("id") == section_id), None)
+    if not section:
+        return
+    dx = abs(float(delta[0])) if len(delta) > 0 else 0.0
+    dz = abs(float(delta[2])) if len(delta) > 2 else 0.0
+    if node.get("group") in {"left", "right"} and dx:
+        section["widthMm"] = round(max(1.0, float(section["widthMm"]) + dx * 2.0), 3)
+    if node.get("group") in {"front", "rear"} and dz:
+        section["depthMm"] = round(max(1.0, float(section["depthMm"]) + dz * 2.0), 3)
+    for profile_name, dimension in (("frontProfile", "widthMm"), ("sideProfile", "depthMm")):
+        for point in model.get(profile_name, []):
+            if abs(float(point.get("heightRatio", 0)) - float(section.get("heightRatio", 0))) < 0.03:
+                point["halfExtentMm"] = round(float(section[dimension]) / 2.0, 3)
 
 
 def _positive(value) -> Optional[float]:

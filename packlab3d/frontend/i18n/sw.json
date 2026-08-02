@@ -164,6 +164,62 @@
       "noteAdded": "Dokezo la mchoro limeongezwa na litahifadhiwa wakati wa mabadiliko ya modeli."
     }
   },
+  "phase7": {
+    "quality": {
+      "sharpness": "Ukali",
+      "coverage": "Ufunikaji"
+    },
+    "duplicate": {
+      "warning": "Onyo la nakala"
+    },
+    "view": {
+      "assigned": "Mtazamo uliopangwa"
+    },
+    "optimizer": {
+      "monitor": "Kifuatilia Uboreshaji",
+      "iteration": "Mzunguko",
+      "bestError": "Hitilafu bora",
+      "perViewIou": "IoU kwa kila mtazamo",
+      "objectiveTerms": "Vipengele vya lengo"
+    },
+    "section": {
+      "width": "Upana wa sehemu (mm)",
+      "apply": "Tumia Hariri ya Sehemu",
+      "updated": "Hariri ya sehemu imetumika na mchoro uliounganishwa umesasishwa."
+    },
+    "cage": {
+      "delta": "Mabadiliko ya fremu (mm)",
+      "apply": "Hamisha Nodi ya Fremu",
+      "updated": "Fremu ya udhibiti imebadili mesh na kuburudisha michoro."
+    },
+    "dimension": {
+      "move": "Hamisha Kipimo",
+      "updated": "Nafasi ya kipimo imesasishwa na itabaki baada ya mabadiliko ya 3D."
+    },
+    "sectionLine": {
+      "add": "Ongeza Mstari wa Sehemu",
+      "updated": "Mstari wa sehemu na mtazamo wa sehemu uliounganishwa umeongezwa."
+    },
+    "landmarks": {
+      "lock": "Funga Alama",
+      "updated": "Marekebisho ya alama yamehifadhiwa na kufungwa."
+    },
+    "drawing": {
+      "dimensions": "Vipimo",
+      "notes": "Madokezo",
+      "sectionViews": "Mitazamo ya sehemu"
+    },
+    "version": {
+      "namePlaceholder": "Jina la toleo",
+      "save": "Hifadhi Toleo",
+      "defaultName": "Toleo la Kazi",
+      "saved": "Toleo la mradi limehifadhiwa.",
+      "compare": "Linganisha Matoleo",
+      "compared": "Matoleo yamelinganishwa.",
+      "versions": "Matoleo",
+      "changeSummary": "Muhtasari wa mabadiliko"
+    }
+  },
   "labelMapping": {
     "title": "Uwekaji wa Lebo",
     "applyTo3d": "Weka Lebo kwenye 3D",
@@ -211,6 +267,8 @@
     "notInstalled": "Haijasakinishwa",
     "available": "Inapatikana",
     "unavailable": "Haipatikani",
+    "valid": "Sahihi",
+    "invalid": "Si sahihi",
     "notRequired": "Haihitajiki",
     "retry": "Jaribu Tena",
     "timedOut": "Muda Umeisha",

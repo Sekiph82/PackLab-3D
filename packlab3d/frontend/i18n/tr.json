@@ -164,6 +164,62 @@
       "noteAdded": "Cizim notu eklendi ve model duzenlemelerinde korunacak."
     }
   },
+  "phase7": {
+    "quality": {
+      "sharpness": "Keskinlik",
+      "coverage": "Kapsama"
+    },
+    "duplicate": {
+      "warning": "Yinelenen uyari"
+    },
+    "view": {
+      "assigned": "Atanan gorunum"
+    },
+    "optimizer": {
+      "monitor": "Optimizasyon Izleyici",
+      "iteration": "Yineleme",
+      "bestError": "En iyi hata",
+      "perViewIou": "Gorunum basina IoU",
+      "objectiveTerms": "Hedef terimleri"
+    },
+    "section": {
+      "width": "Kesit genisligi (mm)",
+      "apply": "Kesit Duzenlemesini Uygula",
+      "updated": "Kesit duzenlemesi uygulandi ve bagli cizim guncellendi."
+    },
+    "cage": {
+      "delta": "Kafes degisimi (mm)",
+      "apply": "Kafes Dugumunu Tasi",
+      "updated": "Kontrol kafesi agi bicimlendirdi ve cizimleri yeniledi."
+    },
+    "dimension": {
+      "move": "Olcuyu Tasi",
+      "updated": "Olcu yerlesimi guncellendi ve 3D degisikliklerden sonra korunacak."
+    },
+    "sectionLine": {
+      "add": "Kesit Cizgisi Ekle",
+      "updated": "Kesit cizgisi ve bagli kesit gorunumu eklendi."
+    },
+    "landmarks": {
+      "lock": "Isaret Noktasini Kilitle",
+      "updated": "Isaret noktasi duzeltmesi kaydedildi ve kilitlendi."
+    },
+    "drawing": {
+      "dimensions": "Olculer",
+      "notes": "Notlar",
+      "sectionViews": "Kesit gorunumleri"
+    },
+    "version": {
+      "namePlaceholder": "Surum adi",
+      "save": "Surumu Kaydet",
+      "defaultName": "Calisma Surumu",
+      "saved": "Proje surumu kaydedildi.",
+      "compare": "Surumleri Karsilastir",
+      "compared": "Surumler karsilastirildi.",
+      "versions": "Surumler",
+      "changeSummary": "Degisiklik ozeti"
+    }
+  },
   "labelMapping": {
     "title": "Etiket Esleme",
     "applyTo3d": "Etiketi 3D'ye Uygula",
@@ -211,6 +267,8 @@
     "notInstalled": "Kurulu degil",
     "available": "Kullanilabilir",
     "unavailable": "Kullanilamaz",
+    "valid": "Gecerli",
+    "invalid": "Gecersiz",
     "notRequired": "Gerekli degil",
     "retry": "Tekrar Dene",
     "timedOut": "Zaman Asimi",

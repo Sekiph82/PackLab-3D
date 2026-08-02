@@ -72,19 +72,31 @@ def render_view_svg(
     dim_y_line_y = margin_mm + dim_y_mm + 15
     dim_x_line_x = margin_mm + dim_x_mm + 15
 
+    center_x = margin_mm + dim_x_mm / 2
+    center_y = margin_mm + dim_y_mm / 2
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{canvas_w:.1f}" height="{canvas_h:.1f}" viewBox="0 0 {canvas_w:.1f} {canvas_h:.1f}">
   <rect width="100%" height="100%" fill="#FFFFFF"/>
-  <text x="{margin_mm:.2f}" y="{margin_mm - 6:.2f}" font-size="12" fill="#0A0A0A">{view_label}</text>
-  <polygon points="{poly_pts}" fill="none" stroke="#0A0A0A" stroke-width="1"/>
-  <line x1="{margin_mm:.2f}" y1="{dim_y_line_y:.2f}" x2="{margin_mm + dim_x_mm:.2f}" y2="{dim_y_line_y:.2f}" stroke="#0057FF" stroke-width="0.8"/>
-  <text x="{margin_mm + dim_x_mm / 2:.2f}" y="{dim_y_line_y + 12:.2f}" font-size="10" text-anchor="middle" fill="#0057FF">{dim_x_mm:.1f} mm</text>
-  <line x1="{dim_x_line_x:.2f}" y1="{margin_mm:.2f}" x2="{dim_x_line_x:.2f}" y2="{margin_mm + dim_y_mm:.2f}" stroke="#0057FF" stroke-width="0.8"/>
-  <text x="{dim_x_line_x + 4:.2f}" y="{margin_mm + dim_y_mm / 2:.2f}" font-size="10" text-anchor="start" fill="#0057FF">{dim_y_mm:.1f} mm</text>
+  <g id="outline"><polygon points="{poly_pts}" fill="none" stroke="#0A0A0A" stroke-width="1"/></g>
+  <g id="dimensions">
+    <line x1="{margin_mm:.2f}" y1="{dim_y_line_y:.2f}" x2="{margin_mm + dim_x_mm:.2f}" y2="{dim_y_line_y:.2f}" stroke="#0057FF" stroke-width="0.8"/>
+    <text x="{margin_mm + dim_x_mm / 2:.2f}" y="{dim_y_line_y + 12:.2f}" font-size="10" text-anchor="middle" fill="#0057FF">{dim_x_mm:.1f} mm</text>
+    <line x1="{dim_x_line_x:.2f}" y1="{margin_mm:.2f}" x2="{dim_x_line_x:.2f}" y2="{margin_mm + dim_y_mm:.2f}" stroke="#0057FF" stroke-width="0.8"/>
+    <text x="{dim_x_line_x + 4:.2f}" y="{margin_mm + dim_y_mm / 2:.2f}" font-size="10" text-anchor="start" fill="#0057FF">{dim_y_mm:.1f} mm</text>
+  </g>
+  <g id="centerlines">
+    <line x1="{center_x:.2f}" y1="{margin_mm:.2f}" x2="{center_x:.2f}" y2="{margin_mm + dim_y_mm:.2f}" stroke="#7A7A7A" stroke-width="0.5" stroke-dasharray="4 3"/>
+    <line x1="{margin_mm:.2f}" y1="{center_y:.2f}" x2="{margin_mm + dim_x_mm:.2f}" y2="{center_y:.2f}" stroke="#7A7A7A" stroke-width="0.5" stroke-dasharray="4 3"/>
+  </g>
+  <g id="reference-lines"></g>
+  <g id="label-area"><rect x="{margin_mm + dim_x_mm * 0.18:.2f}" y="{margin_mm + dim_y_mm * 0.28:.2f}" width="{dim_x_mm * 0.64:.2f}" height="{dim_y_mm * 0.38:.2f}" fill="none" stroke="#00A676" stroke-width="0.7" stroke-dasharray="3 2"/></g>
+  <g id="sections"></g>
+  <g id="notes"></g>
+  <g id="title-block"><text x="{margin_mm:.2f}" y="{margin_mm - 6:.2f}" font-size="12" fill="#0A0A0A">{view_label}</text></g>
 </svg>
 '''
 
 
-def _dxf_polyline(points: np.ndarray, layer: str = "SILHOUETTE") -> str:
+def _dxf_polyline(points: np.ndarray, layer: str = "OUTLINE") -> str:
     lines = ["0", "POLYLINE", "8", layer, "66", "1", "70", "1"]
     for x, y in points:
         lines += ["0", "VERTEX", "8", layer, "10", f"{x:.4f}", "20", f"{y:.4f}"]
@@ -109,7 +121,7 @@ def _dxf_text(x, y, height, text, layer: str = "DIMENSIONS") -> str:
 
 
 def render_view_dxf(hull_points: np.ndarray, dim_x_mm: float, dim_y_mm: float, view_label: str) -> str:
-    """Minimal valid ASCII DXF R12: HEADER/TABLES omitted, single ENTITIES section."""
+    """Minimal valid ASCII DXF R12 with logical PackLab layers."""
     min_xy = hull_points.min(axis=0)
     pts = hull_points - min_xy
 
@@ -118,6 +130,14 @@ def render_view_dxf(hull_points: np.ndarray, dim_x_mm: float, dim_y_mm: float, v
     entities += _dxf_text(dim_x_mm / 2 - 8, -9, 3, f"{dim_x_mm:.1f} mm")
     entities += _dxf_line(dim_x_mm + 5, 0, dim_x_mm + 5, dim_y_mm)
     entities += _dxf_text(dim_x_mm + 7, dim_y_mm / 2, 3, f"{dim_y_mm:.1f} mm")
-    entities += _dxf_text(0, dim_y_mm + 5, 4, view_label)
+    entities += _dxf_line(dim_x_mm / 2, 0, dim_x_mm / 2, dim_y_mm, "CENTERLINES")
+    entities += _dxf_line(0, dim_y_mm / 2, dim_x_mm, dim_y_mm / 2, "CENTERLINES")
+    entities += _dxf_line(0, 0, dim_x_mm, 0, "REFERENCE_LINES")
+    entities += _dxf_line(dim_x_mm * 0.18, dim_y_mm * 0.28, dim_x_mm * 0.82, dim_y_mm * 0.28, "LABEL_AREA")
+    entities += _dxf_line(dim_x_mm * 0.18, dim_y_mm * 0.66, dim_x_mm * 0.82, dim_y_mm * 0.66, "LABEL_AREA")
+    entities += _dxf_line(dim_x_mm * 0.5, 0, dim_x_mm * 0.5, dim_y_mm, "SECTIONS")
+    entities += _dxf_text(dim_x_mm * 0.52, dim_y_mm * 0.5, 2.5, "EST INNER", "HATCH")
+    entities += _dxf_text(0, dim_y_mm + 5, 4, view_label, "TITLE_BLOCK")
+    entities += _dxf_text(0, dim_y_mm + 10, 2.5, "Derived mesh projection", "NOTES")
 
     return "0\nSECTION\n2\nENTITIES\n" + entities + "0\nENDSEC\n0\nEOF\n"

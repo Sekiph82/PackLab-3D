@@ -214,7 +214,7 @@ def test_generate_2d_success_returns_zip():
         assert response.status_code == 200
         assert unquote(response.headers["X-Api-Message"]) == get_message("api.drawingGenerated", lang)
         assert response.headers["X-View-Count"] == "3"
-        assert response.headers["X-File-Count"] == "7"  # 3 views x (svg+dxf) + metadata.json
+        assert response.headers["X-File-Count"] == "8"  # 3 views x (svg+dxf) + metadata.json + validation.json
         assert response.headers["X-Bounding-Box-Mm"] == "10.000,20.000,30.000"
 
         with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
@@ -224,6 +224,7 @@ def test_generate_2d_success_returns_zip():
                 "side.svg", "side.dxf",
                 "top.svg", "top.dxf",
                 "metadata.json",
+                "validation.json",
             }
             import json
 

@@ -171,7 +171,23 @@ async function runScenario(name, index) {
       await page.waitForSelector('#diagnostics-dialog[open]', { timeout: 5000 });
       await page.keyboard.press('Escape').catch(() => {});
 
-      if (['multiphoto', 'primary-unified', 'one-photo-unified', 'label-mapping', 'label-timeout', 'native-reconstruction', 'editable-3d', 'linked-2d'].includes(name)) {
+      const phase7Scenarios = [
+        'photo-analysis',
+        'same-object',
+        'view-assignment',
+        'mask-editor',
+        'landmark-editor',
+        'optimizer-monitor',
+        'advanced-profile-editor',
+        'advanced-section-editor',
+        'control-cage',
+        'dimension-editor',
+        'section-view',
+        'svg-dxf-validation',
+        'version-compare',
+        'autosave-recovery',
+      ];
+      if (['multiphoto', 'primary-unified', 'one-photo-unified', 'label-mapping', 'label-timeout', 'native-reconstruction', 'editable-3d', 'linked-2d', ...phase7Scenarios].includes(name)) {
         const screenshotDir = process.env.PACKLAB_MULTIPHOTO_SCREENSHOT_DIR || '';
         const tenFiles = createSmokePngFiles(10);
         if (name === 'primary-unified') {
@@ -195,7 +211,7 @@ async function runScenario(name, index) {
           if (thumbnailCount !== 10) throw new Error(`Expected 10 thumbnails, got ${thumbnailCount}`);
         }
 
-        if (name === 'multiphoto' || name === 'primary-unified' || name === 'label-mapping' || name === 'label-timeout' || name === 'native-reconstruction' || name === 'editable-3d' || name === 'linked-2d') {
+        if (name === 'multiphoto' || name === 'primary-unified' || name === 'label-mapping' || name === 'label-timeout' || name === 'native-reconstruction' || name === 'editable-3d' || name === 'linked-2d' || phase7Scenarios.includes(name)) {
           await page.locator('.multi-photo__actions button', { hasText: 'Remove All' }).click();
           await page.waitForFunction(() => document.querySelectorAll('.photo-card').length === 0, null, { timeout: 5000 });
         }
@@ -237,6 +253,20 @@ async function runScenario(name, index) {
         if (!pipelineStatus.includes('Unified design generated with PackLab native reconstruction')) throw new Error(`Expected native reconstruction success status, got: ${pipelineStatus}`);
         if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase4-unified-design-fallback-${Date.now()}.png`), fullPage: true });
 
+        if (phase7Scenarios.includes(name)) {
+          await page.waitForSelector('.optimizer-monitor', { timeout: 15000 });
+          const cardText = await page.locator('.photo-card').first().textContent();
+          if (!/Sharpness|Coverage|Assigned view/.test(cardText)) throw new Error(`Phase 7 photo diagnostics missing: ${cardText}`);
+          const reportTextPhase7 = await page.locator('.multi-photo__report').textContent();
+          if (!reportTextPhase7.includes('Per-view IoU')) throw new Error(`Phase 7 IoU summary missing: ${reportTextPhase7}`);
+          const monitorText = await page.locator('.optimizer-monitor').textContent();
+          if (!monitorText.includes('Objective terms')) throw new Error(`Objective term monitor missing: ${monitorText}`);
+          if (screenshotDir) {
+            await page.screenshot({ path: path.join(screenshotDir, `phase7-photo-quality-${Date.now()}.png`), fullPage: true });
+            await page.screenshot({ path: path.join(screenshotDir, `phase7-optimizer-monitor-${Date.now()}.png`), fullPage: true });
+          }
+        }
+
         if (name === 'editable-3d' || name === 'linked-2d') {
           await page.waitForSelector('.native-editor', { timeout: 10000 });
           const heightInput = page.locator('.native-editor input[type="number"]').nth(0);
@@ -251,7 +281,7 @@ async function runScenario(name, index) {
         }
 
         if (name === 'linked-2d') {
-          await page.locator('.native-editor input[type="text"]').fill('Smoke note persists');
+          await page.locator('.native-editor input[type="text"]').first().fill('Smoke note persists');
           await page.locator('.native-editor button', { hasText: 'Add Note' }).click();
           await page.waitForFunction(
             () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Drawing note added'),
@@ -259,6 +289,86 @@ async function runScenario(name, index) {
             { timeout: 15000 }
           );
           if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase6-linked-2d-${Date.now()}.png`), fullPage: true });
+        }
+
+        if (phase7Scenarios.includes(name)) {
+          await page.waitForSelector('.native-editor', { timeout: 10000 });
+          if (name === 'advanced-section-editor' || name === 'advanced-profile-editor') {
+            await page.locator('.native-editor button', { hasText: 'Apply Section Edit' }).click();
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Section edit applied'),
+              null,
+              { timeout: 60000 }
+            );
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-section-editor-${Date.now()}.png`), fullPage: true });
+          }
+          if (name === 'control-cage') {
+            await page.locator('.native-editor button', { hasText: 'Move Cage Node' }).click();
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Control cage edit'),
+              null,
+              { timeout: 60000 }
+            );
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-control-cage-${Date.now()}.png`), fullPage: true });
+          }
+          if (name === 'dimension-editor') {
+            await page.locator('.native-editor button', { hasText: 'Move Dimension' }).click();
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Dimension placement updated'),
+              null,
+              { timeout: 15000 }
+            );
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-dimension-editor-${Date.now()}.png`), fullPage: true });
+          }
+          if (name === 'section-view') {
+            await page.locator('.native-editor button', { hasText: 'Add Section Line' }).click();
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Section line'),
+              null,
+              { timeout: 15000 }
+            );
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-section-view-${Date.now()}.png`), fullPage: true });
+          }
+          if (name === 'landmark-editor') {
+            await page.locator('.native-editor button', { hasText: 'Lock Landmark' }).click();
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Landmark correction'),
+              null,
+              { timeout: 15000 }
+            );
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-landmark-editor-${Date.now()}.png`), fullPage: true });
+          }
+          if (name === 'version-compare' || name === 'autosave-recovery') {
+            await page.locator('.native-editor input[type="text"]').last().fill('Smoke Version A');
+            await page.locator('.native-editor button', { hasText: 'Save Version' }).click();
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Project version saved'),
+              null,
+              { timeout: 15000 }
+            );
+            await page.locator('.native-editor button', { hasText: 'Apply Section Edit' }).click();
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Section edit applied'),
+              null,
+              { timeout: 60000 }
+            );
+            await page.locator('.native-editor input[type="text"]').last().fill('Smoke Version B');
+            await page.locator('.native-editor button', { hasText: 'Save Version' }).click();
+            await page.locator('.native-editor button', { hasText: 'Compare Versions' }).click();
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Versions compared'),
+              null,
+              { timeout: 15000 }
+            );
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-version-compare-${Date.now()}.png`), fullPage: true });
+          }
+          if (name === 'svg-dxf-validation') {
+            const validationText = await page.locator('.multi-photo__report').textContent();
+            if (!validationText.includes('SVG: Valid') || !validationText.includes('DXF: Valid')) {
+              throw new Error(`SVG/DXF validation result missing: ${validationText}`);
+            }
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-svg-dxf-validation-${Date.now()}.png`), fullPage: true });
+          }
         }
 
         if (name === 'label-mapping' || name === 'label-timeout') {
