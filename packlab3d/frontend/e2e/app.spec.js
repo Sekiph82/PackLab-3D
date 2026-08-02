@@ -1,8 +1,9 @@
 // Real Playwright Electron E2E suite. The primary desktop workflow is the
 // native unified photo-set reconstruction job, not the retired /generate-mesh endpoint.
-const { test, expect, _electron: electron } = require('@playwright/test');
+const { test, expect } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
+const { launchPackLab } = require('./helpers/launchPackLab');
 
 const APP_DIR = path.join(__dirname, '..');
 const ARTIFACTS_DIR = path.join(__dirname, '..', '..', 'tests', 'e2e', 'artifacts');
@@ -33,14 +34,14 @@ function logError(message) {
 test.describe.serial('PackLab 3D desktop app (real end-to-end run)', () => {
   let app;
   let window;
+  let launched;
 
   test.beforeAll(async () => {
     log(`Launching Electron app from ${APP_DIR} with PACKLAB_BACKEND_PORT=${BACKEND_PORT}`);
-    app = await electron.launch({
-      args: [APP_DIR],
-      env: { ...process.env, PACKLAB_BACKEND_PORT: BACKEND_PORT, PACKLAB_E2E: '1' },
-    });
-    window = await app.firstWindow();
+    launched = await launchPackLab({ backendPort: BACKEND_PORT, waitForReady: false });
+    app = launched.app;
+    window = launched.window;
+    await launched.waitReady();
     window.on('console', (msg) => log(`[renderer console] ${msg.text()}`));
     window.on('pageerror', (err) => logError(`[renderer error] ${err.message}`));
   });
@@ -48,8 +49,8 @@ test.describe.serial('PackLab 3D desktop app (real end-to-end run)', () => {
   test.afterAll(async () => {
     fs.writeFileSync(path.join(LOGS_DIR, 'e2e_run.log'), `${runLog.join('\n')}\n`);
     fs.writeFileSync(path.join(LOGS_DIR, 'e2e_errors.log'), `${errorLog.join('\n')}\n`);
-    if (app) {
-      await app.close();
+    if (launched) {
+      await launched.close();
       log('App closed.');
     } else {
       log('App was not launched; close skipped.');
@@ -163,7 +164,7 @@ test.describe.serial('PackLab 3D desktop app (real end-to-end run)', () => {
     await window.mouse.move(box.x + 6, box.y + 4, { steps: 6 });
     await window.mouse.up();
     await window.locator('.photo-geometry-workspace .contour-editor__toolbar button', { hasText: /^Save$/ }).click();
-    await expect(window.locator('.contour-editor__status')).toContainText(/Manual contour saved|Revision/i, { timeout: 15000 });
+    await expect(window.locator('.photo-geometry-workspace .contour-editor__status').first()).toContainText(/Manual contour saved|Revision/i, { timeout: 15000 });
     log('Contour pointer edit saved through photo geometry workspace.');
   });
 
@@ -196,10 +197,12 @@ test.describe.serial('PackLab 3D desktop app (real end-to-end run)', () => {
 
   test('14 - edited geometry can be fetched after project reload from backend state', async () => {
     const diagnostics = await window.evaluate(() => window.packlab.diagnostics.get());
-    const photoSet = await window.evaluate(() => window.packlab.store?.getState?.().photoSet || null);
-    expect(photoSet?.projectId).toBeTruthy();
-    const photoId = photoSet.photos[0].id;
-    const geometry = await fetch(`${diagnostics.backendUrl}/projects/${photoSet.projectId}/photos/${photoId}/geometry`).then((res) => res.json());
+    const workspace = window.locator('.photo-geometry-workspace');
+    const projectId = await workspace.getAttribute('data-project-id');
+    const photoId = await workspace.getAttribute('data-photo-id');
+    expect(projectId).toBeTruthy();
+    expect(photoId).toBeTruthy();
+    const geometry = await fetch(`${diagnostics.backendUrl}/projects/${projectId}/photos/${photoId}/geometry`).then((res) => res.json());
     expect(geometry.geometry.revisions.photoGeometry).toBeGreaterThan(0);
     expect(geometry.contour.source).toMatch(/manual|manual-mask/);
     log('Edited geometry persisted and is fetchable after backend project serialization.');

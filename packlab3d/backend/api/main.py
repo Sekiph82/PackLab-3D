@@ -293,13 +293,6 @@ def _build_capabilities() -> dict:
     pillow_cap = _capability("PIL", distribution="Pillow")
     qrcode_cap = _capability("qrcode")
     barcode_cap = _capability("barcode", distribution="python-barcode")
-    sam_installed = _module_available("segment_anything")
-    sam_checkpoint = bool(os.environ.get("PACKLAB_SAM_CHECKPOINT"))
-    sam_cap = _static_capability(
-        sam_installed and sam_checkpoint,
-        "available" if sam_installed and sam_checkpoint else "not-configured",
-        None if sam_installed and sam_checkpoint else "segment_anything and PACKLAB_SAM_CHECKPOINT are required",
-    )
     freecad_cap = _static_capability(
         _module_available("FreeCAD") and _module_available("Part"),
         "available" if _module_available("FreeCAD") and _module_available("Part") else "not-installed",
@@ -319,8 +312,13 @@ def _build_capabilities() -> dict:
         "qr_generation": qrcode_cap,
         "barcode_generation": barcode_cap,
         "native_reconstruction": _static_capability(True, "available", "PackLab Native Reconstruction Engine is built into the core runtime"),
+        "photo_geometry": {
+            "nativeMaskEstimation": _static_capability(True, "available", "Deterministic native foreground estimation"),
+            "manualMaskEditing": _static_capability(True, "available"),
+            "contourEditing": _static_capability(True, "available"),
+            "landmarkEditing": _static_capability(True, "available"),
+        },
         "cuda": _static_capability(False, "not-required", "PackLab native reconstruction does not require CUDA"),
-        "sam": sam_cap,
         "freecad": freecad_cap,
         "occ": occ_cap,
         "svg_generation": _static_capability(True, "available"),

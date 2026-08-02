@@ -143,7 +143,8 @@ def test_capabilities_returns_structured_results():
     assert data["open3d"]["status"] in {"available", "import-error"}
     assert "loadTimeMs" in data["open3d"]
     assert data["native_reconstruction"]["available"] is True
-    assert data["sam"]["status"] in {"available", "not-configured"}
+    assert data["photo_geometry"]["nativeMaskEstimation"]["available"] is True
+    assert "sam" not in data
 
 
 def test_apply_wall_thickness_default_material_and_thickness():

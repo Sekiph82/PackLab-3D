@@ -601,6 +601,8 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     if (!state.geometryWorkspace) return;
     const photo = state.photos.find((item) => item.id === state.geometryWorkspace.photoId);
     if (!photo) return;
+    geometryWorkspace.dataset.projectId = state.projectId || '';
+    geometryWorkspace.dataset.photoId = photo.uploadedId || '';
     const header = document.createElement('div');
     header.className = 'photo-geometry-workspace__header';
     const rev = photo.geometry?.revisions || {};

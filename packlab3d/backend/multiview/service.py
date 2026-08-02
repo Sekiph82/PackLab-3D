@@ -863,6 +863,10 @@ class MultiViewProjectService:
         package_type = payload.get("packageType") or project.packageType or "custom"
         dimensions, dimension_sources = _infer_dimensions(photos, measurements, package_type)
         reconstruction_input = build_reconstruction_input(project)
+        if os.environ.get("PACKLAB_E2E") == "1":
+            delay_ms = min(30000, max(0, int(os.environ.get("PACKLAB_E2E_RECONSTRUCTION_DELAY_MS", "0"))))
+            if delay_ms:
+                time.sleep(delay_ms / 1000)
         self._progress(job, "generating_reference_geometry", "Generating unified reference geometry", 35)
         model_measurements = dict(measurements)
         for key, value in dimensions.items():

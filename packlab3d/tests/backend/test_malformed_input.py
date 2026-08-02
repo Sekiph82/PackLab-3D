@@ -1,13 +1,9 @@
-import sys
-import types
-
 import numpy as np
 import open3d as o3d
 import pytest
 from PIL import Image
 
 from packlab3d.backend.cad_drawings.mesh_projection import get_view_dimensions, project_silhouette
-from packlab3d.backend.image_processing.segmentation import segment_image
 from packlab3d.backend.label_engine.render import LabelContent, LabelSpec, render_label_png
 from packlab3d.backend.label_engine.shapes import LabelShape
 from packlab3d.backend.label_engine.styles import LabelStyle
@@ -22,44 +18,6 @@ from packlab3d.backend.mesh_scaling.scaling import (
     get_bounding_size,
 )
 from packlab3d.backend.wall_thickness.apply import apply_wall_thickness
-from packlab3d.core.utils.errors import ModelNotAvailableError
-
-
-# ---------- image_processing ----------
-
-def _install_fake_sam(monkeypatch):
-    fake_torch = types.ModuleType("torch")
-    monkeypatch.setitem(sys.modules, "torch", fake_torch)
-
-    fake_sa = types.ModuleType("segment_anything")
-
-    class FakeSamPredictor:
-        def __init__(self, sam):
-            self._image = None
-
-        def set_image(self, image_np):
-            self._image = image_np
-
-        def predict(self, point_coords, point_labels, multimask_output=True):
-            h, w = self._image.shape[:2]
-            mask = np.ones((h, w), dtype=bool)
-            n = 3 if multimask_output else 1
-            return np.stack([mask] * n), np.linspace(0.7, 0.95, n), None
-
-    fake_sa.SamPredictor = FakeSamPredictor
-    fake_sa.sam_model_registry = {"vit_b": lambda checkpoint: "fake"}
-    monkeypatch.setitem(sys.modules, "segment_anything", fake_sa)
-
-
-def test_segment_image_degenerate_1x1_image(tmp_path, monkeypatch):
-    _install_fake_sam(monkeypatch)
-    checkpoint = tmp_path / "x.pth"
-    checkpoint.write_bytes(b"x")
-    image = Image.new("RGB", (1, 1))
-    result = segment_image(image, checkpoint_path=str(checkpoint), model_type="vit_b")
-    assert result.mask.shape == (1, 1)
-
-
 # ---------- mesh_generation ----------
 
 def test_mesh_from_vertices_faces_accepts_empty_arrays():

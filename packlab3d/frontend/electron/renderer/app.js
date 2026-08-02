@@ -207,6 +207,7 @@ async function main() {
 
   mountApplication(url);
   setProgress(100, 'Application ready');
+  appRoot.dataset.appReady = 'true';
 }
 
 main().catch((err) => {

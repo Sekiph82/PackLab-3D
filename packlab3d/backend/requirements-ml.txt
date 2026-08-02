@@ -1,4 +1,0 @@
-# Retired.
-# PackLab 3D no longer uses large neural image-to-3D runtimes for core
-# reconstruction. Use requirements-core.txt for the desktop backend and
-# requirements-ai.txt only for optional SAM segmentation experiments.

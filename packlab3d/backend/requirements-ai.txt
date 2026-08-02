@@ -1,7 +1,0 @@
-# Optional segmentation-only dependencies.
-# The PackLab native reconstruction engine does not require PyTorch, model
-# weights, CUDA, or a neural image-to-3D runtime.
-#
-# Install these only when enabling the optional local SAM segmentation provider.
-torch
-segment-anything

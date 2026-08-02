@@ -25,6 +25,29 @@ let startupStartedAt = Date.now();
 const startupEvents = [];
 let isQuitting = false;
 
+function writeE2EDiagnostic(event, details = {}) {
+  if (process.env.PACKLAB_E2E !== '1') return;
+  try {
+    const target = process.env.PACKLAB_E2E_DIAGNOSTICS_PATH || path.join(os.tmpdir(), 'PackLab3D-e2e', 'main-diagnostics.log');
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.appendFileSync(target, `${JSON.stringify({
+      timestamp: new Date().toISOString(), event, pid: process.pid,
+      execPath: process.execPath, argv: process.argv, cwd: process.cwd(),
+      nodeEnv: process.env.NODE_ENV || null,
+      electronRunAsNode: process.env.ELECTRON_RUN_AS_NODE || null,
+      packaged: app.isPackaged, mainFile: __filename,
+      preloadPath: path.join(__dirname, 'preload.js'),
+      rendererPath: path.join(__dirname, 'renderer', 'dist', 'index.html'),
+      backendPath: path.join(PROJECT_ROOT, 'resources', 'backend', 'PackLab3DBackend.exe'),
+      ...details,
+    })}\n`, 'utf8');
+  } catch (_error) {
+    // E2E diagnostics are best-effort and must never affect startup.
+  }
+}
+
+writeE2EDiagnostic('process-start');
+
 function writeEarlyFatal(error, phase = 'main-process') {
   try {
     const logDir = ensureLogDir();
@@ -134,6 +157,7 @@ function writeCrash(error, context = {}) {
 }
 
 function createWindow() {
+  writeE2EDiagnostic('window-creation-started');
   emitStartup('Desktop interface started', 'running');
   const rendererIndex = path.join(__dirname, 'renderer', 'dist', 'index.html');
   const fallbackIndex = path.join(__dirname, 'renderer', 'index.html');
@@ -152,9 +176,11 @@ function createWindow() {
       sandbox: false,
     },
   });
+  writeE2EDiagnostic('window-creation-succeeded');
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
   mainWindow.webContents.on('did-finish-load', () => {
+    writeE2EDiagnostic('renderer-load-succeeded', { indexPath });
     emitStartup('Renderer DOM ready', 'success', { indexPath });
     startupEvents.forEach((event) => mainWindow.webContents.send('startup:stage', event));
   });
@@ -162,6 +188,7 @@ function createWindow() {
     electronLogger.info('renderer console', { level, message, line, sourceId });
   });
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    writeE2EDiagnostic('renderer-load-failed', { errorCode, errorDescription, validatedURL });
     emitStartup('Renderer load failed', 'error', { errorCode, errorDescription, validatedURL });
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -173,11 +200,13 @@ function createWindow() {
   });
 
   mainWindow.loadFile(indexPath);
+  writeE2EDiagnostic('renderer-load-started', { indexPath });
   emitStartup('Main window creation', 'success', { indexPath });
 }
 
 async function bootBackend() {
   try {
+    writeE2EDiagnostic('backend-spawn-started');
     const port = await findAvailablePort();
     emitStartup('Backend executable lookup', 'success', { port, packaged: app.isPackaged });
     emitStartup('Backend process spawn call started', 'running', { port });
@@ -189,6 +218,7 @@ async function bootBackend() {
       logger: electronLogger,
     });
     backendProcess = backendInfo.child;
+    writeE2EDiagnostic('backend-spawn-succeeded', { pid: backendProcess.pid, backendUrl: backendInfo.backendUrl });
     emitStartup('Backend process spawn call returned', 'success', {
       pid: backendInfo.backendPid(),
       launcherPid: backendProcess.pid,
@@ -233,10 +263,10 @@ async function bootBackend() {
     emitStartup('Capabilities loaded', 'success', { capabilityCount: Object.keys(capabilities).length });
     emitStartup('Open3D available', capabilityAvailable(capabilities.open3d) ? 'success' : 'error', { open3d: capabilities.open3d });
     emitStartup('PackLab native reconstruction available', capabilityAvailable(capabilities.native_reconstruction) ? 'success' : 'error', { nativeReconstruction: capabilities.native_reconstruction });
-    if (!capabilityAvailable(capabilities.sam)) emitStartup('SAM model unavailable', 'warning');
     emitStartup('Application ready', 'success', { totalMs: Date.now() - startupStartedAt });
     return { ready: true, mode: 'CORE_ONLY', url: backendInfo.backendUrl, port, backendPid: backendInfo.backendPid(), capabilities, startupEvents };
   } catch (err) {
+    writeE2EDiagnostic('backend-spawn-failed', { message: err.message, stack: err.stack });
     writeCrash(err, { phase: 'backend-startup' });
     electronLogger.error('backend startup failed', { message: err.message, stack: err.stack });
     emitStartup('Backend startup failed', 'error', { message: err.message });
@@ -289,6 +319,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    writeE2EDiagnostic('app-when-ready');
     startupStartedAt = Date.now();
     ensureLogDir();
     startupLogger = createLogger('startup.log', { appVersion: packageInfo().version });
@@ -347,6 +378,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async (event) => {
+  writeE2EDiagnostic('before-quit');
   if (backendProcess && (backendInfo?.backendPid?.() || (backendProcess.exitCode === null && !backendProcess.killed))) {
     if (isQuitting) return;
     event.preventDefault();

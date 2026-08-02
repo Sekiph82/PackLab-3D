@@ -16,8 +16,6 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        "torch",
-        "segment_anything",
         "FreeCAD",
         "Part",
         "OCC",
