@@ -36,6 +36,7 @@ from packlab3d.backend.multiview.drawing_workspace import (
     apply_drawing_patch,
     autosave_metadata,
     build_drawing_document,
+    compute_drawing_checksums,
     compare_versions,
     create_version_snapshot,
 )
@@ -60,6 +61,14 @@ from packlab3d.backend.multiview.editable_geometry import (
     apply_sections,
     ensure_editable_model,
     validate_model,
+)
+from packlab3d.backend.multiview.cage_deformation import (
+    apply_cage_deformation,
+    build_authoritative_bindings,
+    checksum_cage,
+    checksum_faces,
+    checksum_vertices,
+    transform_nodes,
 )
 
 SUPPORTED_IMAGE_TYPES = {
@@ -370,7 +379,20 @@ class MultiViewProjectService:
             "autosaveMetadata": project.autosaveMetadata,
             "modelRevision": int(project.reconstructionModel.get("modelRevision", 1)),
             "geometryValidation": validate_model(project.reconstructionModel),
+            "deformationChecksums": project.editable3DState.get("deformationChecksums", {}),
+            "deformationProvenance": project.editable3DState.get("deformationProvenance", {}),
+            "linkedDrawingUpdateReport": project.editable3DState.get("linkedDrawingUpdateReport", {}),
         }
+
+    def deformation_report(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        return {"projectId": project.id, "modelRevision": int(project.reconstructionModel.get("modelRevision", 1)), "checksums": project.editable3DState.get("deformationChecksums", {}), "provenance": project.editable3DState.get("deformationProvenance", {}), "drawing": (project.drawingDocument or {}).get("checksums", {}), "linkedDrawingUpdateReport": project.editable3DState.get("linkedDrawingUpdateReport", {})}
+
+    def drawing_checksums(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        checksums = compute_drawing_checksums(project.drawingDocument or {})
+        project.drawingDocument["checksums"] = checksums
+        return {"projectId": project.id, **checksums}
 
     def editor_state(self, project_id: str) -> dict:
         project = self.get_project(project_id)
@@ -408,6 +430,7 @@ class MultiViewProjectService:
         if expected_revision is not None and int(expected_revision) != current_revision:
             raise RevisionConflict("editable-model", int(expected_revision), current_revision)
         operations = []
+        cage_before = {node.get("id"): list(node.get("positionMm", [0, 0, 0])) for node in model.get("controlCage", {}).get("nodes", [])}
         if "heightMm" in edits:
             old = model["heightMm"]
             model["heightMm"] = float(edits["heightMm"])
@@ -491,11 +514,25 @@ class MultiViewProjectService:
             before = list(node.get("positionMm", [0, 0, 0]))
             after = [round(float(before[idx]) + float(delta[idx]), 3) for idx in range(3)]
             operations.append({"type": "move-cage-node", "target": node_id, "before": before, "after": after, "deformation": "weighted section-aware lattice"})
+        if edits.get("cageTransform"):
+            transform = edits["cageTransform"]
+            selected_ids = list(transform.get("selectedNodeIds", []))
+            transformed = transform_nodes(
+                model.get("controlCage", {}).get("nodes", []),
+                selected_ids,
+                scale=transform.get("scale", [1.0, 1.0, 1.0]),
+                rotation_deg=transform.get("rotationDeg", [0.0, 0.0, 0.0]),
+                pivot_mode=transform.get("pivotMode", "centroid"),
+                pivot=transform.get("pivot"),
+                symmetry=edits.get("symmetry", True),
+            )
+            model["controlCage"]["nodes"] = transformed["nodes"]
+            operations.append({"type": "transform-cage-selection", "affectedIds": transformed["changedIds"], "scale": transformed["scale"], "rotationDeg": transformed["rotationDeg"], "pivot": transformed["pivot"], "pivotMode": transformed["pivotMode"]})
         if edits.get("profilePoints") and edits.get("profileName") and len(edits.get("profilePoints") or []) >= 3:
             model = apply_profile_points(model, edits["profileName"], edits["profilePoints"], symmetry=edits.get("symmetry", True))
         if edits.get("sections"):
             model = apply_sections(model, edits["sections"])
-        if edits.get("cageNodes"):
+        if edits.get("cageNodes") and not edits.get("cageTransform"):
             model = apply_cage_edits(model, edits["cageNodes"], falloff=edits.get("falloff", "medium"), symmetry=edits.get("symmetry", True))
         if not operations:
             return self.editable_model(project_id)
@@ -508,6 +545,15 @@ class MultiViewProjectService:
         project.versions.append(create_version_snapshot(project, "Automatic snapshot before edit", "Created before 3D edit", project.versions[-1]["id"] if project.versions else None))
         project.reconstructionModel = model
         project.editHistory.extend(operations)
+        cage_after = {node.get("id"): list(node.get("positionMm", [0, 0, 0])) for node in model.get("controlCage", {}).get("nodes", [])}
+        patch_items = [{"path": ["controlCage", "nodes", node_id, "positionMm"], "before": cage_before.get(node_id), "after": cage_after.get(node_id)} for node_id in sorted(set(cage_before) | set(cage_after)) if cage_before.get(node_id) != cage_after.get(node_id)]
+        editor_state = project.editable3DState.setdefault("editorState", {"version": 3})
+        history = editor_state.setdefault("history", {"entries": [], "cursor": 0, "maxEntries": 100})
+        entries = list(history.get("entries", []))[: int(history.get("cursor", len(history.get("entries", []))))]
+        entries.append({"id": f"history-{uuid.uuid4().hex[:12]}", "timestamp": time.time(), "editor": edits.get("sourceEditor", "editable-model"), "operation": operations[-1].get("type", "edit"), "label": operations[-1].get("type", "Edit geometry"), "modelRevisionBefore": current_revision, "modelRevisionAfter": model["modelRevision"], "affectedIds": [item.get("path", [None, None, None])[2] for item in patch_items], "forwardPatch": patch_items, "reversePatch": [{**item, "before": item.get("after"), "after": item.get("before")} for item in patch_items]})
+        history["entries"] = entries[-int(history.get("maxEntries", 100)):]
+        history["cursor"] = len(history["entries"])
+        editor_state["modelRevision"] = model["modelRevision"]
         project.editable3DState["historySize"] = len(project.editHistory)
         project.editable3DState["lastOperation"] = operations[-1]["type"]
         project.editable3DState["modelRevision"] = model["modelRevision"]
@@ -516,9 +562,77 @@ class MultiViewProjectService:
         self._save_project(project)
         return self.editable_model(project_id)
 
+    def _apply_editor_history_entry(self, project: ProjectRecord, entry: dict, direction: str) -> None:
+        patch_key = "reversePatch" if direction == "undo" else "forwardPatch"
+        for item in entry.get(patch_key, []):
+            path = item.get("path") or []
+            if len(path) != 4 or path[0:2] != ["controlCage", "nodes"] or path[3] != "positionMm":
+                continue
+            node_id = path[2]
+            node = next((candidate for candidate in project.reconstructionModel.get("controlCage", {}).get("nodes", []) if candidate.get("id") == node_id), None)
+            if node is not None and item.get("after") is not None:
+                node["positionMm"] = [float(value) for value in item["after"]]
+
+    def _history_action(self, project_id: str, direction: str, expected_revision: Optional[int] = None) -> dict:
+        project = self.get_project(project_id)
+        model = ensure_editable_model(project.reconstructionModel)
+        current_revision = int(model.get("modelRevision", 1))
+        if expected_revision is not None and int(expected_revision) != current_revision:
+            raise RevisionConflict("editable-model-history", int(expected_revision), current_revision)
+        editor_state = project.editable3DState.setdefault("editorState", {"version": 3})
+        history = editor_state.setdefault("history", {"entries": [], "cursor": 0, "maxEntries": 100})
+        entries = list(history.get("entries", []))
+        cursor = int(history.get("cursor", len(entries)))
+        project.reconstructionModel = model
+        if direction == "undo":
+            if cursor <= 0:
+                return self.editable_model(project_id)
+            entry = entries[cursor - 1]
+            self._apply_editor_history_entry(project, entry, "undo")
+            history["cursor"] = cursor - 1
+        else:
+            if cursor >= len(entries):
+                return self.editable_model(project_id)
+            entry = entries[cursor]
+            self._apply_editor_history_entry(project, entry, "redo")
+            history["cursor"] = cursor + 1
+        model["modelRevision"] = current_revision + 1
+        model["lastOperationId"] = f"history-{direction}-{uuid.uuid4().hex[:12]}"
+        model["lastEditor"] = "history"
+        validation = validate_model(model)
+        if not validation["valid"]:
+            raise GeometryValidationError(validation["errors"])
+        project.reconstructionModel = model
+        editor_state["modelRevision"] = model["modelRevision"]
+        project.editable3DState["modelRevision"] = model["modelRevision"]
+        project.editable3DState["geometryValidation"] = validation
+        self._persist_model_outputs(project)
+        self._save_project(project)
+        return self.editable_model(project_id)
+
+    def undo_editor_history(self, project_id: str, expected_revision: Optional[int] = None) -> dict:
+        return self._history_action(project_id, "undo", expected_revision)
+
+    def redo_editor_history(self, project_id: str, expected_revision: Optional[int] = None) -> dict:
+        return self._history_action(project_id, "redo", expected_revision)
+
+    def finalize_editable_model(self, project_id: str, edits: dict) -> dict:
+        report = self.deformation_report(project_id)
+        expected = edits.get("expectedModelRevision")
+        current = int(report.get("modelRevision", 1))
+        expected_cage = edits.get("inputCageChecksum")
+        current_cage = (report.get("checksums") or {}).get("cageStateChecksum")
+        if expected is not None and int(expected) != current:
+            raise RevisionConflict("stale-final-deformation", int(expected), current)
+        if expected_cage and current_cage and expected_cage != current_cage:
+            raise RevisionConflict("stale-final-deformation", current, current)
+        return self.update_editable_model(project_id, edits)
+
     def update_drawing_document(self, project_id: str, patch: dict) -> dict:
         project = self.get_project(project_id)
         document = apply_drawing_patch(project.drawingDocument or {}, patch)
+        document["drawingRevision"] = int(document.get("drawingRevision", 0)) + 1
+        document["checksums"] = compute_drawing_checksums(document)
         project.drawingDocument = document
         project.drawingLayout = document.get("page", {})
         project.editHistory.append({"type": "drawing-patch", "patchKeys": sorted(patch.keys()), "timestamp": time.time()})
@@ -1034,18 +1148,63 @@ class MultiViewProjectService:
 
     def _persist_model_outputs(self, project: ProjectRecord) -> None:
         mesh = mesh_from_generic_model(project.reconstructionModel)
-        cleaned_mesh, cleanup_report = cleanup_mesh(mesh)
+        rest_vertices = np.asarray(mesh.vertices, dtype=np.float64)
+        rest_faces = np.asarray(mesh.triangles, dtype=np.int64)
+        cage = project.reconstructionModel.get("controlCage", {})
+        bindings = build_authoritative_bindings(rest_vertices, cage, int(project.reconstructionModel.get("modelRevision", 1)))
+        deformation = apply_cage_deformation(
+            rest_vertices,
+            rest_faces,
+            cage,
+            cage.get("nodes", []),
+            bindings,
+            constraints={"falloff": (cage.get("falloff") or {}).get("mode", "medium")},
+            quality_mode="final",
+        )
+        deformed_mesh = o3d.geometry.TriangleMesh(
+            o3d.utility.Vector3dVector(np.asarray(deformation["vertices"], dtype=np.float64)),
+            o3d.utility.Vector3iVector(rest_faces),
+        )
+        deformed_mesh.compute_vertex_normals()
+        project.editable3DState["deformationChecksums"] = {
+            "restVertexChecksum": checksum_vertices(rest_vertices),
+            "finalVertexChecksum": deformation["vertexChecksum"],
+            "faceChecksum": checksum_faces(rest_faces),
+            "cageStateChecksum": checksum_cage(cage),
+            "bindingChecksum": deformation["bindingChecksum"],
+            "topologyChecksum": deformation["topologyChecksum"],
+            "qualityMode": "final",
+        }
+        project.editable3DState["deformationProvenance"] = {
+            "modelRevision": int(project.reconstructionModel.get("modelRevision", 1)),
+            "compositionOrder": ["base", "profile", "section", "cage", "measurement-locks"],
+            "bindingCacheKey": bindings.get("cacheKey"),
+        }
+        cleaned_mesh, cleanup_report = cleanup_mesh(deformed_mesh)
         clean_path = Path(project.rootPath) / "results" / "clean_mesh.obj"
         o3d.io.write_triangle_mesh(str(clean_path), cleaned_mesh)
         glb_bytes = _mesh_to_glb(cleaned_mesh)
         glb_path = Path(project.rootPath) / "results" / "visualization.glb"
         glb_path.write_bytes(glb_bytes)
+        project.editable3DState["deformationChecksums"]["glbChecksum"] = "sha256:" + hashlib.sha256(glb_bytes).hexdigest()
         drawing_package = generate_technical_drawing_package(cleaned_mesh, backend=CadBackend.MESH_PROJECTION)
         drawing_package["metadata"]["reconstruction_method"] = project.reconstruction.get("method", "packlab-native-generic-profile-fit")
         drawing_zip = build_zip_package(drawing_package)
         drawing_path = Path(project.rootPath) / "results" / "technical_drawing.zip"
         drawing_path.write_bytes(drawing_zip)
+        before_document_revision = int((project.drawingDocument or {}).get("drawingRevision", 0))
+        before_checksums = (project.drawingDocument or {}).get("checksums", {})
         project.drawingDocument = build_drawing_document(drawing_package, project.reconstructionModel, project.drawingDocument)
+        after_checksums = project.drawingDocument.get("checksums", {})
+        project.editable3DState["linkedDrawingUpdateReport"] = {
+            "sourceModelRevision": int(project.reconstructionModel.get("modelRevision", 1)),
+            "drawingRevisionBefore": before_document_revision,
+            "drawingRevisionAfter": int(project.drawingDocument.get("drawingRevision", 1)),
+            "changedViewIds": sorted([view_id for view_id, value in after_checksums.get("viewChecksums", {}).items() if value != before_checksums.get("viewChecksums", {}).get(view_id)]),
+            "preservedEntityIds": sorted(set(before_checksums.get("entityIds", [])) & set(after_checksums.get("entityIds", []))),
+            "checksumsBefore": before_checksums,
+            "checksumsAfter": after_checksums,
+        }
         project.drawingLayout = project.drawingDocument.get("page", {})
         project.optimizationReport.setdefault("editUpdates", []).append({"operations": len(project.editHistory), "cleanup": cleanup_report})
         project.assets.update({"cleanMesh": str(clean_path), "finalMesh": str(glb_path), "drawingPackage": str(drawing_path)})

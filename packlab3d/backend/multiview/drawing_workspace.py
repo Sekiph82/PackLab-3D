@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import hashlib
+import json
 import math
 import re
 import uuid
@@ -39,7 +41,7 @@ def build_drawing_document(drawing_package: dict, reconstruction_model: dict, pr
     title = previous.get("titleBlock", {}).get("title", "PackLab 3D Technical Drawing")
     document = {
         "version": 2,
-        "linkedModelVersion": reconstruction_model.get("version"),
+        "linkedModelVersion": reconstruction_model.get("modelRevision", reconstruction_model.get("version")),
         "units": "mm",
         "page": previous.get("page", {"size": "A3", "orientation": "landscape", "marginMm": 12, "scale": "1:1", "grid": True}),
         "views": previous.get("views") or [
@@ -63,7 +65,49 @@ def build_drawing_document(drawing_package: dict, reconstruction_model: dict, pr
         "manualOverridesPreserved": True,
         "validation": drawing_package.get("validation", {}),
     }
+    document["drawingRevision"] = int(previous.get("drawingRevision", 0)) + 1
+    document["sourceModelRevision"] = int(reconstruction_model.get("modelRevision", 1) or 1)
+    for view in document.get("views", []):
+        # Keep the projection provenance explicit so a model edit changes the
+        # deterministic view checksum even when placement and annotations stay intact.
+        view["sourceModelRevision"] = document["sourceModelRevision"]
+    document["checksums"] = compute_drawing_checksums(document)
     return document
+
+
+def _checksum(value) -> str:
+    return "sha256:" + hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest()
+
+
+def compute_drawing_checksums(document: dict) -> dict:
+    """Return deterministic view, annotation, placement, page, and title checksums."""
+    views = {}
+    for view in document.get("views", []):
+        view_id = view.get("id", "view")
+        views[view_id] = _checksum({key: view.get(key) for key in ("id", "type", "visible", "scale", "placement", "geometry", "sourceModelRevision")})
+    dimensions = []
+    placements = []
+    for item in document.get("dimensions", []):
+        dimensions.append({key: item.get(key) for key in ("id", "type", "viewId", "featureRefs", "valueMm", "source", "precision", "prefix", "suffix", "visible")})
+        placements.append({key: item.get(key) for key in ("id", "placement", "lockedPlacement", "visible")})
+    annotation = {
+        "dimensions": dimensions,
+        "notes": document.get("notes", []),
+        "leaders": document.get("leaders", []),
+        "referenceLines": document.get("referenceLines", []),
+        "sectionLines": document.get("sectionLines", []),
+        "centerLines": document.get("centerLines", []),
+    }
+    return {
+        "drawingRevision": document.get("drawingRevision", 0),
+        "sourceModelRevision": document.get("sourceModelRevision", document.get("linkedModelVersion")),
+        "viewChecksums": views,
+        "annotationChecksum": _checksum(annotation),
+        "dimensionPlacementChecksum": _checksum(placements),
+        "pageLayoutChecksum": _checksum(document.get("page", {})),
+        "titleBlockChecksum": _checksum(document.get("titleBlock", {})),
+        "entityIds": sorted(item.get("id") for group in ("dimensions", "notes", "leaders", "referenceLines", "sectionLines") for item in document.get(group, []) if item.get("id")),
+    }
 
 
 def apply_drawing_patch(document: dict, patch: dict) -> dict:

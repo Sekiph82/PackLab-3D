@@ -160,6 +160,40 @@ export function createApiClient(baseUrl) {
       return res.json();
     },
 
+    async finalizeEditableModel({ projectId, edits, expectedModelRevision = null, inputCageChecksum = null, operationId = null, sourceEditor = null }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/editable-model/finalize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...edits, expectedModelRevision, inputCageChecksum, operationId, sourceEditor }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        const error = new Error(payload.detail?.message || payload.detail || res.statusText);
+        error.status = res.status;
+        error.detail = payload.detail;
+        throw error;
+      }
+      return res.json();
+    },
+
+    async undoEditableModel({ projectId, expectedModelRevision = null }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/editable-model/undo`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedModelRevision }),
+      });
+      if (!res.ok) throw await parseJsonError(res);
+      return res.json();
+    },
+
+    async redoEditableModel({ projectId, expectedModelRevision = null }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/editable-model/redo`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedModelRevision }),
+      });
+      if (!res.ok) throw await parseJsonError(res);
+      return res.json();
+    },
+
     async getEditorState(projectId) {
       const res = await fetch(`${baseUrl}/projects/${projectId}/editable-model/editor-state`);
       if (!res.ok) throw await parseJsonError(res);
@@ -171,6 +205,18 @@ export function createApiClient(baseUrl) {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expectedRevision, editorState }),
       });
+      if (!res.ok) throw await parseJsonError(res);
+      return res.json();
+    },
+
+    async getDeformationProvenance(projectId) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/deformation-provenance`);
+      if (!res.ok) throw await parseJsonError(res);
+      return res.json();
+    },
+
+    async getDrawingChecksums(projectId) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/drawing-checksums`);
       if (!res.ok) throw await parseJsonError(res);
       return res.json();
     },

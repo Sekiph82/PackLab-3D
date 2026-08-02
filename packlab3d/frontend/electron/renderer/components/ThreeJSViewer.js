@@ -88,7 +88,7 @@ export function mountThreeJsViewer(container, { i18n }) {
     });
   }
 
-  function setControlCage(cage, { onChange } = {}) {
+  function setControlCage(cage, { onChange, mode = 'translate', space = 'world', pivotMode = 'centroid' } = {}) {
     cageController?.destroy?.();
     renderer.domElement.dataset.cageSelectedCount = '0';
     renderer.domElement.dataset.cageTransformAttached = 'false';
@@ -136,12 +136,14 @@ export function mountThreeJsViewer(container, { i18n }) {
     pivot.name = 'PackLabCageSelectionPivot';
     scene.add(pivot);
     const transform = new TransformControls(camera, renderer.domElement);
-    transform.setMode('translate');
-    transform.setSpace('world');
+    transform.setMode(mode);
+    transform.setSpace(space);
     scene.add(transform);
     let active = null;
     let beforePositions = new Map();
     let beforePivot = new THREE.Vector3();
+    let beforeScale = new THREE.Vector3(1, 1, 1);
+    let beforeQuaternion = new THREE.Quaternion();
     let boxStart = null;
     let boxElement = null;
     function deformPreview(selectedIds, deltas) {
@@ -192,7 +194,7 @@ export function mountThreeJsViewer(container, { i18n }) {
       if (transform.dragging) return;
       point(event); raycaster.setFromCamera(pointer, camera); const hit = raycaster.intersectObjects([...nodes.values()])[0];
       if (!hit) { beginBox(event); return; }
-      setSelection(hit.object.userData.cageNodeId, event.shiftKey); active = hit.object; beforePositions = new Map([...selected].map((id) => [id, nodes.get(id).position.clone()])); beforePivot.copy(pivot.position); renderer.domElement.setPointerCapture?.(event.pointerId);
+      setSelection(hit.object.userData.cageNodeId, event.shiftKey); active = hit.object; beforePositions = new Map([...selected].map((id) => [id, nodes.get(id).position.clone()])); beforePivot.copy(pivot.position); beforeScale.copy(pivot.scale); beforeQuaternion.copy(pivot.quaternion); renderer.domElement.setPointerCapture?.(event.pointerId);
     }
     function move(event) {
       if (boxStart) { updateBox(event); return; }
@@ -205,10 +207,10 @@ export function mountThreeJsViewer(container, { i18n }) {
       onChange?.({ type: 'move', nodeId: active.userData.cageNodeId, selectedNodeIds: [...selected], deltaMm: deltas[0] || [0, 0, 0], positionMm: active.position.toArray() });
     }
     function up(event) { if (boxStart) { finishBox(event); return; } if (transform.dragging || !active) return; onChange?.({ type: 'end', nodeId: active.userData.cageNodeId, selectedNodeIds: [...selected] }); active = null; }
-    transform.addEventListener('dragging-changed', (event) => { controls.enabled = !event.value; if (event.value) { beforePositions = new Map([...selected].map((id) => [id, nodes.get(id).position.clone()])); beforePivot.copy(pivot.position); onChange?.({ type: 'start', nodeId: [...selected][0], selectedNodeIds: [...selected], before: beforePivot.toArray() }); } else if (selected.size) { onChange?.({ type: 'end', nodeId: [...selected][0], selectedNodeIds: [...selected] }); } });
-    transform.addEventListener('change', () => { if (!transform.dragging || !selected.size) return; const delta = [pivot.position.x - beforePivot.x, pivot.position.y - beforePivot.y, pivot.position.z - beforePivot.z]; const deltas = [...selected].map((id) => { const node = nodeById.get(id); return node?.pinned ? [0, 0, 0] : ['x', 'y', 'z'].map((axis, index) => (node?.lockedAxes || []).includes(axis) ? 0 : delta[index]); }); selected.forEach((id, index) => { const node = nodes.get(id); const before = beforePositions.get(id); if (node && before) node.position.set(before.x + deltas[index][0], before.y + deltas[index][1], before.z + deltas[index][2]); }); edgeLines.forEach(({ line, from, to }) => { const a = nodes.get(from)?.position; const b = nodes.get(to)?.position; if (a && b) line.geometry.setFromPoints([a, b]); }); deformPreview([...selected], deltas); onChange?.({ type: 'move', nodeId: [...selected][0], selectedNodeIds: [...selected], deltaMm: deltas[0] || [0, 0, 0], positionMm: nodes.get([...selected][0])?.position.toArray() }); });
+    transform.addEventListener('dragging-changed', (event) => { controls.enabled = !event.value; if (event.value) { beforePositions = new Map([...selected].map((id) => [id, nodes.get(id).position.clone()])); beforePivot.copy(pivot.position); beforeScale.copy(pivot.scale); beforeQuaternion.copy(pivot.quaternion); onChange?.({ type: 'start', nodeId: [...selected][0], selectedNodeIds: [...selected], before: beforePivot.toArray(), transformMode: transform.getMode?.() || mode, pivotMode }); } else if (selected.size) { onChange?.({ type: 'end', nodeId: [...selected][0], selectedNodeIds: [...selected], transformMode: transform.getMode?.() || mode }); } });
+    transform.addEventListener('change', () => { if (!transform.dragging || !selected.size) return; const positionDelta = pivot.position.clone().sub(beforePivot); const scale = pivot.scale.clone(); const rotation = pivot.quaternion.clone(); const deltas = []; const nodePositions = {}; selected.forEach((id) => { const node = nodeById.get(id); const before = beforePositions.get(id); if (!node || !before) return; const target = before.clone().sub(beforePivot).multiply(scale).applyQuaternion(rotation).add(beforePivot).add(positionDelta); const movement = target.sub(before); const constrained = node.pinned ? [0, 0, 0] : ['x', 'y', 'z'].map((axis, index) => (node.lockedAxes || []).includes(axis) ? 0 : movement.getComponent(index)); const next = before.clone().add(new THREE.Vector3(...constrained)); nodes.get(id).position.copy(next); nodePositions[id] = next.toArray(); deltas.push(constrained); }); edgeLines.forEach(({ line, from, to }) => { const a = nodes.get(from)?.position; const b = nodes.get(to)?.position; if (a && b) line.geometry.setFromPoints([a, b]); }); deformPreview([...selected], deltas); onChange?.({ type: 'move', nodeId: [...selected][0], selectedNodeIds: [...selected], deltaMm: deltas[0] || [0, 0, 0], nodePositions, positionMm: nodes.get([...selected][0])?.position.toArray(), transformMode: transform.getMode?.() || mode, scale: scale.toArray(), rotation: new THREE.Euler().setFromQuaternion(rotation).toArray(), pivot: beforePivot.toArray(), pivotMode }); });
     renderer.domElement.addEventListener('pointerdown', down); renderer.domElement.addEventListener('pointermove', move); renderer.domElement.addEventListener('pointerup', up);
-    cageController = { destroy() { renderer.domElement.removeEventListener('pointerdown', down); renderer.domElement.removeEventListener('pointermove', move); renderer.domElement.removeEventListener('pointerup', up); transform.detach(); scene.remove(transform); scene.remove(pivot); scene.remove(group); group.traverse((item) => { item.geometry?.dispose?.(); item.material?.dispose?.(); }); cageController = null; }, select(nodeId, additive = false) { setSelection(nodeId, additive); }, selectRegion(region) { selected.clear(); nodes.forEach((mesh, id) => { if (nodeById.get(id)?.region === region) selected.add(id); }); updatePivot(); }, getSelectedIds() { return [...selected]; }, group };
+    cageController = { destroy() { renderer.domElement.removeEventListener('pointerdown', down); renderer.domElement.removeEventListener('pointermove', move); renderer.domElement.removeEventListener('pointerup', up); transform.detach(); scene.remove(transform); scene.remove(pivot); scene.remove(group); group.traverse((item) => { item.geometry?.dispose?.(); item.material?.dispose?.(); }); cageController = null; }, select(nodeId, additive = false) { setSelection(nodeId, additive); }, selectRegion(region) { selected.clear(); nodes.forEach((mesh, id) => { if (nodeById.get(id)?.region === region) selected.add(id); }); updatePivot(); }, setMode(nextMode) { transform.setMode(nextMode); }, getSelectedIds() { return [...selected]; }, group };
     return cageController;
   }
 

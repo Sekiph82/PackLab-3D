@@ -137,3 +137,30 @@ def test_svg_and_dxf_validators_reject_missing_structure():
     dxf = render_view_dxf(__import__("numpy").array([[0, 0], [10, 0], [10, 20], [0, 20]], dtype=float), 10, 20, "Front")
     assert validate_svg(svg)["valid"] is True
     assert validate_dxf(dxf)["valid"] is True
+
+
+def test_phase7_2c_persisted_history_undo_redo_and_stale_finalize_conflict():
+    project_id = _project()
+    photos = _upload(project_id, [_package_image(), _package_image((190, 40, 40))])
+    job = client.post(f"/projects/{project_id}/reconstruct", json={"measurements": {"heightMm": 120, "widthMm": 48, "depthMm": 32}}).json()
+    assert _wait(job["id"])["state"] == "succeeded"
+    baseline = client.get(f"/projects/{project_id}/editable-model").json()
+    model = baseline["reconstructionModel"]
+    node = model["controlCage"]["nodes"][len(model["controlCage"]["nodes"]) // 2]
+    edited = client.patch(
+        f"/projects/{project_id}/editable-model",
+        json={"cageNodes": [{"id": node["id"], "deltaMm": [4, 0, 0]}], "expectedModelRevision": baseline["modelRevision"], "sourceEditor": "control-cage"},
+    )
+    assert edited.status_code == 200
+    changed = edited.json()
+    changed_position = next(item for item in changed["reconstructionModel"]["controlCage"]["nodes"] if item["id"] == node["id"])["positionMm"]
+    undone = client.post(f"/projects/{project_id}/editable-model/undo", json={"expectedModelRevision": changed["modelRevision"]})
+    assert undone.status_code == 200
+    restored_position = next(item for item in undone.json()["reconstructionModel"]["controlCage"]["nodes"] if item["id"] == node["id"])["positionMm"]
+    assert restored_position == node["positionMm"]
+    redone = client.post(f"/projects/{project_id}/editable-model/redo", json={"expectedModelRevision": undone.json()["modelRevision"]})
+    assert redone.status_code == 200
+    assert next(item for item in redone.json()["reconstructionModel"]["controlCage"]["nodes"] if item["id"] == node["id"])["positionMm"] == changed_position
+    stale = client.post(f"/projects/{project_id}/editable-model/finalize", json={"expectedModelRevision": baseline["modelRevision"], "sourceEditor": "control-cage"})
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["error"] == "stale_final_deformation"

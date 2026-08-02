@@ -46,7 +46,7 @@ export function applyCageDelta(nodes, selectedIds, delta, { falloff = 'medium', 
   });
 }
 
-export function mountControlCageEditor(container, { i18n, cage, viewer, onApply, onDirty, onPreview } = {}) {
+export function mountControlCageEditor(container, { i18n, cage, viewer, onApply, onDirty, onPreview, onUndo, onRedo } = {}) {
   container.innerHTML = '';
   const panel = makePanel(tr('phase7.cage.editor', 'Control Cage Editor', i18n));
   const toolbar = el('div', 'interactive-editor__toolbar');
@@ -60,16 +60,19 @@ export function mountControlCageEditor(container, { i18n, cage, viewer, onApply,
   let dragging = null;
   let falloff = 'medium';
   let symmetry = true;
+  let transformMode = 'translate';
+  let pivotMode = 'centroid';
   let pending = new Map();
+  let pendingTransform = null;
   let undoStack = [];
   let redoStack = [];
-  toolbar.append(actionButton(tr('phase7.cage.falloff', 'Falloff', i18n), () => { falloff = falloff === 'local' ? 'medium' : falloff === 'medium' ? 'wide' : 'local'; render(); }), actionButton(tr('phase7.cage.symmetry', 'Symmetry', i18n), () => { symmetry = !symmetry; render(); }), actionButton(tr('phase7.cage.pin', 'Pin/Unpin', i18n), togglePin), actionButton(tr('phase7.cage.resetNode', 'Reset Node', i18n), resetSelected), actionButton(tr('common.undo', 'Undo', i18n), undo), actionButton(tr('common.redo', 'Redo', i18n), redo), actionButton(tr('common.apply', 'Apply', i18n), apply));
+  toolbar.append(actionButton(tr('phase7.cage.falloff', 'Falloff', i18n), () => { falloff = falloff === 'local' ? 'medium' : falloff === 'medium' ? 'wide' : 'local'; render(); }), actionButton(tr('phase7.cage.symmetry', 'Symmetry', i18n), () => { symmetry = !symmetry; render(); }), actionButton(tr('phase7.cage.pin', 'Pin/Unpin', i18n), togglePin), actionButton(tr('phase7.cage.resetNode', 'Reset Node', i18n), resetSelected), actionButton(tr('common.undo', 'Undo', i18n), undoAction), actionButton(tr('common.redo', 'Redo', i18n), redoAction), actionButton(tr('common.apply', 'Apply', i18n), apply), actionButton(tr('phase7.cage.translate', 'Translate', i18n), () => { transformMode = 'translate'; render(); }), actionButton(tr('phase7.cage.scale', 'Scale', i18n), () => { transformMode = 'scale'; render(); }), actionButton(tr('phase7.cage.rotate', 'Rotate', i18n), () => { transformMode = 'rotate'; render(); }), actionButton(tr('phase7.cage.pivot', 'Pivot: Centroid', i18n), () => { pivotMode = pivotMode === 'centroid' ? 'active-node' : 'centroid'; render(); }));
   panel.append(toolbar, host, status); container.appendChild(panel);
   function snapshot(label = 'Cage edit') { undoStack.push({ label, value: copy(nodes) }); redoStack = []; }
   function bounds() { const xs = nodes.map((node) => Number(node.positionMm?.[0]) || 0); const zs = nodes.map((node) => Number(node.positionMm?.[2]) || 0); return { minX: Math.min(...xs, -1), maxX: Math.max(...xs, 1), minZ: Math.min(...zs, -1), maxZ: Math.max(...zs, 1) }; }
   function project(node) { const b = bounds(); return { x: 30 + ((Number(node.positionMm?.[0] || 0) - b.minX) / Math.max(b.maxX - b.minX, 1)) * (WIDTH - 60), y: HEIGHT - 30 - ((Number(node.positionMm?.[2] || 0) - b.minZ) / Math.max(b.maxZ - b.minZ, 1)) * (HEIGHT - 60) }; }
   function render() {
-    if (viewer) { viewer.clearControlCage?.(); viewer.setControlCage?.({ nodes, edges }, { onChange: handleViewerChange }); }
+    if (viewer) { viewer.clearControlCage?.(); viewer.setControlCage?.({ nodes, edges }, { onChange: handleViewerChange, mode: transformMode, pivotMode }); }
     if (svg) {
       svg.innerHTML = ''; svg.appendChild(svgEl('rect', { x: 0, y: 0, width: WIDTH, height: HEIGHT, fill: '#f8fbff', stroke: '#d7e5f7' }));
       edges.forEach((edge) => { const from = typeof edge === 'object' ? edge.from : edge[0]; const to = typeof edge === 'object' ? edge.to : edge[1]; const a = nodes.find((node) => node.id === from); const b = nodes.find((node) => node.id === to); if (!a || !b) return; const pa = project(a); const pb = project(b); svg.appendChild(svgEl('line', { x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y, stroke: '#94a3b8', 'stroke-width': 2 })); });
@@ -83,11 +86,19 @@ export function mountControlCageEditor(container, { i18n, cage, viewer, onApply,
   function handleViewerChange(event) {
     if (!event?.nodeId) return;
     if (event.type === 'start') {
-      selected = new Set([event.nodeId]);
+      selected = new Set(event.selectedNodeIds || [event.nodeId]);
       snapshot('Move cage node');
+      pendingTransform = null;
       dragging = { id: event.nodeId, positions: new Map(nodes.map((node) => [node.id, [...(node.positionMm || [0, 0, 0])]])) };
       status.textContent = 'Dragging cage node';
     } else if (event.type === 'move') {
+      if (event.nodePositions) {
+        nodes = nodes.map((item) => event.nodePositions[item.id] ? { ...item, positionMm: [...event.nodePositions[item.id]] } : item);
+        pendingTransform = event.transformMode && event.transformMode !== 'translate' ? { selectedNodeIds: event.selectedNodeIds || [], scale: event.scale || [1, 1, 1], rotationDeg: (event.rotation || [0, 0, 0]).slice(0, 3).map((value) => Number(value) * 180 / Math.PI), pivot: event.pivot, pivotMode: event.pivotMode || pivotMode } : null;
+        onPreview?.({ nodes: copy(nodes), falloff, transformMode: event.transformMode });
+        onDirty?.({ type: `${event.transformMode || 'translate'}-cage-drag` });
+        return;
+      }
       const node = nodes.find((item) => item.id === event.nodeId);
       const original = dragging?.positions?.get(event.nodeId);
       if (!node || node.pinned || !original) return;
@@ -107,7 +118,9 @@ export function mountControlCageEditor(container, { i18n, cage, viewer, onApply,
   function resetSelected() { if (!selected.size) return; snapshot('Reset cage nodes'); nodes = nodes.map((node) => selected.has(node.id) ? { ...node, positionMm: [...(node.restPositionMm || node.fittedPositionMm || node.positionMm)] } : node); pending.clear(); render(); }
   function undo() { const item = undoStack.pop(); if (!item) return; redoStack.push({ label: item.label, value: copy(nodes) }); nodes = item.value; pending.clear(); render(); }
   function redo() { const item = redoStack.pop(); if (!item) return; undoStack.push({ label: item.label, value: copy(nodes) }); nodes = item.value; pending.clear(); render(); }
-  async function apply() { const entries = [...pending.entries()]; const cageNodes = entries.length ? entries.map(([id, deltaMm]) => ({ id, deltaMm })) : [...selected].map((id) => ({ id, deltaMm: [0, 0, 0] })); const result = await onApply?.({ cageNodes, selectedNodeIds: [...selected], falloff, symmetry, sourceEditor: 'control-cage', operationId: `cage-${Date.now()}` }); pending.clear(); status.textContent = tr('phase7.cage.applied', 'Control cage deformation applied to the mesh.', i18n); return result; }
+  async function undoAction() { if (onUndo) { await onUndo(); return; } undo(); }
+  async function redoAction() { if (onRedo) { await onRedo(); return; } redo(); }
+  async function apply() { const entries = [...pending.entries()]; const cageNodes = entries.length ? entries.map(([id, deltaMm]) => ({ id, deltaMm })) : [...selected].map((id) => ({ id, deltaMm: [0, 0, 0] })); const result = await onApply?.({ cageNodes, cageTransform: pendingTransform, selectedNodeIds: [...selected], falloff, symmetry, sourceEditor: 'control-cage', operationId: `cage-${Date.now()}` }); pending.clear(); pendingTransform = null; status.textContent = tr('phase7.cage.applied', 'Control cage deformation applied to the mesh.', i18n); return result; }
   svg?.addEventListener('pointermove', dragSvg); svg?.addEventListener('mousemove', dragSvg); window.addEventListener('pointerup', stop); window.addEventListener('mouseup', stop); render();
   return { getNodes: () => copy(nodes), getSelectedIds: () => [...selected], getFalloff: () => falloff, destroy: () => viewer?.clearControlCage?.() };
 }

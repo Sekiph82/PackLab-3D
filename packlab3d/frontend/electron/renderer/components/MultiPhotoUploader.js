@@ -164,6 +164,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
 
   const nativeEditor = document.createElement('div');
   nativeEditor.className = 'native-editor';
+  nativeEditor.dataset.projectId = '';
 
   input.addEventListener('change', () => addFiles(input.files));
   root.addEventListener('dragover', (event) => {
@@ -463,11 +464,12 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     const done = await waitForJob(job, t('reconstruction.unified', 'Unified reconstruction'));
     state.report = done.result?.report || null;
     state.editableModel = await api.getEditableModel?.(state.projectId);
+    state.editorState = state.editableModel?.editable3DState?.editorState || {};
     const referenceMesh = await api.getProjectAsset({ projectId: state.projectId, assetName: 'referenceMesh' });
     const cleanMesh = await api.getProjectAsset({ projectId: state.projectId, assetName: 'cleanMesh' });
     const glb = await api.getProjectAsset({ projectId: state.projectId, assetName: 'finalMesh' });
     const drawing = await api.getProjectAsset({ projectId: state.projectId, assetName: 'drawingPackage' });
-    if (viewer) await viewer.loadGlbArrayBuffer(glb.arrayBuffer);
+    if (viewer) { await viewer.loadGlbArrayBuffer(glb.arrayBuffer); viewer.setCameraState?.(state.editorState.cameraState || {}); }
     syncStore({
       pipeline: {
         generated: referenceMesh.arrayBuffer,
@@ -709,6 +711,7 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
   function renderNativeEditor() {
     nativeEditor.innerHTML = '';
     if (!state.report || !state.projectId) return;
+    nativeEditor.dataset.projectId = state.projectId;
     const title = document.createElement('div');
     title.className = 'native-editor__title';
     title.textContent = t('reconstruction.editor.title', 'Editable 3D and Linked 2D');
@@ -790,6 +793,16 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
         onDirty: (event) => markDirty(event.type),
         onPreview: (edits) => applyLocalPreview(edits),
         onApply: (edits) => applyAdvancedEdit(edits, t('phase7.cage.updated', 'Control cage edit deformed the mesh and refreshed drawings.')),
+        onUndo: async () => {
+          const result = await api.undoEditableModel?.({ projectId: state.projectId, expectedModelRevision: state.editableModel?.modelRevision ?? null });
+          if (result) { state.editableModel = result; state.report = { ...state.report, reconstructionModel: result.reconstructionModel }; render(); }
+          return result;
+        },
+        onRedo: async () => {
+          const result = await api.redoEditableModel?.({ projectId: state.projectId, expectedModelRevision: state.editableModel?.modelRevision ?? null });
+          if (result) { state.editableModel = result; state.report = { ...state.report, reconstructionModel: result.reconstructionModel }; render(); }
+          return result;
+        },
       });
     }
     mountDrawingWorkspace(drawingHost, {
@@ -861,6 +874,8 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
       const glb = await api.getProjectAsset({ projectId: state.projectId, assetName: 'finalMesh' });
       if (viewer) await viewer.loadGlbArrayBuffer(glb.arrayBuffer);
       state.editableModel = result;
+      state.editorState = result.editable3DState?.editorState || state.editorState || {};
+      viewer?.setCameraState?.(state.editorState.cameraState || {});
       state.editorState = {
         ...(state.editorState || result.editable3DState?.editorState || {}),
         version: 3,

@@ -217,6 +217,14 @@ async function runScenario(name, index) {
         'control-cage-falloff',
         'editor-camera-history-reopen',
         'linked-2d-editor-proof',
+        'preview-final-parity',
+        'cage-multiscale',
+        'cage-safe-rotation',
+        'stale-final-deformation',
+        'history-reopen-undo-redo',
+        'camera-exact-reopen',
+        'linked-2d-checksum-profile-section',
+        'linked-2d-checksum-cage-reopen',
       ];
       if (['multiphoto', 'primary-unified', 'one-photo-unified', 'label-mapping', 'label-timeout', 'native-reconstruction', 'editable-3d', 'linked-2d', ...phase7Scenarios].includes(name)) {
         const screenshotDir = process.env.PACKLAB_MULTIPHOTO_SCREENSHOT_DIR || '';
@@ -298,7 +306,7 @@ async function runScenario(name, index) {
           }
         }
 
-        if (name === 'editable-3d' || name === 'linked-2d' || name === 'profile-editor-real' || name === 'linked-2d-editor-proof' || name === 'editor-camera-history-reopen') {
+        if (name === 'editable-3d' || name === 'linked-2d' || name === 'profile-editor-real' || name === 'linked-2d-editor-proof' || name === 'editor-camera-history-reopen' || name === 'preview-final-parity' || name === 'cage-multiscale' || name === 'cage-safe-rotation' || name === 'stale-final-deformation' || name === 'history-reopen-undo-redo' || name === 'camera-exact-reopen' || name === 'linked-2d-checksum-cage-reopen') {
           await page.waitForSelector('.native-editor', { timeout: 10000 });
           await page.waitForSelector('.profile-editor__canvas [data-profile-point-id]', { timeout: 10000 });
           await dragLocator(page, page.locator('.profile-editor__canvas [data-profile-point-id]').nth(1), 18, -8);
@@ -362,7 +370,7 @@ async function runScenario(name, index) {
             );
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-control-cage-${Date.now()}.png`), fullPage: true });
           }
-          if (['control-cage-transform', 'control-cage-box-select', 'control-cage-pin-lock', 'control-cage-falloff'].includes(name)) {
+          if (['control-cage-transform', 'control-cage-box-select', 'control-cage-pin-lock', 'control-cage-falloff', 'preview-final-parity', 'cage-multiscale', 'cage-safe-rotation', 'stale-final-deformation', 'history-reopen-undo-redo', 'camera-exact-reopen', 'linked-2d-checksum-cage-reopen'].includes(name)) {
             await page.locator('.native-editor').scrollIntoViewIfNeeded();
             await page.waitForSelector('#threejs-viewer canvas[data-cage-node-count]', { timeout: 10000 });
             const canvas = page.locator('#threejs-viewer canvas[data-cage-node-count]');
@@ -383,10 +391,32 @@ async function runScenario(name, index) {
             }
             const afterCount = await canvas.getAttribute('data-cage-selected-count');
             if (name === 'control-cage-box-select' && beforeCount === afterCount && afterCount === '0') throw new Error('Box selection did not select cage nodes');
+            if (name === 'cage-multiscale') await clickEditorButton(page, 'Control Cage Editor', 'Scale');
+            if (name === 'cage-safe-rotation') await clickEditorButton(page, 'Control Cage Editor', 'Rotate');
             if (name === 'control-cage-pin-lock') await clickEditorButton(page, 'Control Cage Editor', 'Pin/Unpin');
             if (name === 'control-cage-falloff') await clickEditorButton(page, 'Control Cage Editor', 'Falloff');
             await clickEditorButton(page, 'Control Cage Editor', 'Apply');
+            if (['preview-final-parity', 'cage-multiscale', 'cage-safe-rotation', 'stale-final-deformation', 'history-reopen-undo-redo', 'camera-exact-reopen', 'linked-2d-checksum-cage-reopen'].includes(name)) {
+              const projectId = await page.locator('.native-editor').getAttribute('data-project-id');
+              if (!projectId) throw new Error('Missing persisted project id for Phase 7.2C proof');
+              const evidence = await page.evaluate(async (id) => {
+                const base = await window.packlab.backend.getUrl();
+                const response = await fetch(`${base}/projects/${id}/deformation-provenance`);
+                if (!response.ok) throw new Error(`Deformation provenance HTTP ${response.status}`);
+                return response.json();
+              }, projectId);
+              if (!evidence.checksums?.finalVertexChecksum || !evidence.checksums?.faceChecksum) throw new Error('Final deformation checksums missing');
+            }
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-2b-${name}-${Date.now()}.png`), fullPage: true });
+          }
+          if (name === 'linked-2d-checksum-profile-section') {
+            const projectId = await page.locator('.native-editor').getAttribute('data-project-id');
+            const before = await page.evaluate(async (id) => { const base = await window.packlab.backend.getUrl(); return fetch(`${base}/projects/${id}/drawing-checksums`).then((response) => response.json()); }, projectId);
+            await runProfileEdit();
+            const after = await page.evaluate(async (id) => { const base = await window.packlab.backend.getUrl(); return fetch(`${base}/projects/${id}/drawing-checksums`).then((response) => response.json()); }, projectId);
+            if (before.viewChecksums['front-view'] === after.viewChecksums['front-view']) throw new Error('Profile linked drawing checksum did not change');
+            if (before.pageLayoutChecksum !== after.pageLayoutChecksum) throw new Error('Page layout checksum changed during profile edit');
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-2c-linked-2d-profile-section-${Date.now()}.png`), fullPage: true });
           }
           if (name === 'dimension-editor') {
             await page.waitForSelector('.drawing-workspace__canvas [data-entity-kind="dimension"]', { timeout: 10000, state: 'attached' });

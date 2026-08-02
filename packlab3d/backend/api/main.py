@@ -92,11 +92,18 @@ class EditableModelUpdateRequest(BaseModel):
     profilePoints: list[dict] = []
     sections: list[dict] = []
     cageNodes: list[dict] = []
+    cageTransform: Optional[dict] = None
     expectedModelRevision: Optional[int] = None
     operationId: Optional[str] = None
     sourceEditor: Optional[str] = None
     falloff: Optional[str] = "medium"
     symmetry: Optional[bool] = True
+    inputCageChecksum: Optional[str] = None
+
+
+class HistoryActionRequest(BaseModel):
+    expectedModelRevision: Optional[int] = None
+    operationId: Optional[str] = None
 
 
 class EditorStateUpdateRequest(BaseModel):
@@ -507,6 +514,22 @@ def get_editable_model(project_id: str):
         raise HTTPException(status_code=404, detail="Project not found.")
 
 
+@app.get("/projects/{project_id}/deformation-provenance")
+def get_deformation_provenance(project_id: str):
+    try:
+        return multiview_service.deformation_report(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.get("/projects/{project_id}/drawing-checksums")
+def get_drawing_checksums(project_id: str):
+    try:
+        return multiview_service.drawing_checksums(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
 @app.patch("/projects/{project_id}/editable-model")
 def update_editable_model(project_id: str, payload: EditableModelUpdateRequest):
     try:
@@ -519,6 +542,44 @@ def update_editable_model(project_id: str, payload: EditableModelUpdateRequest):
         raise HTTPException(status_code=400, detail={"error": "invalid_editable_model", "errors": exc.errors})
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/projects/{project_id}/editable-model/finalize")
+def finalize_editable_model(project_id: str, payload: EditableModelUpdateRequest):
+    try:
+        return multiview_service.finalize_editable_model(project_id, payload.model_dump(exclude_none=True))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail={**exc.to_dict(), "error": "stale_final_deformation", "resource": "editable-model"})
+    except GeometryValidationError as exc:
+        raise HTTPException(status_code=400, detail={"error": "invalid_editable_model", "errors": exc.errors})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/projects/{project_id}/editable-model/undo")
+def undo_editable_model(project_id: str, payload: HistoryActionRequest = HistoryActionRequest()):
+    try:
+        return multiview_service.undo_editor_history(project_id, payload.expectedModelRevision)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.to_dict())
+    except GeometryValidationError as exc:
+        raise HTTPException(status_code=400, detail={"error": "invalid_history_state", "errors": exc.errors})
+
+
+@app.post("/projects/{project_id}/editable-model/redo")
+def redo_editable_model(project_id: str, payload: HistoryActionRequest = HistoryActionRequest()):
+    try:
+        return multiview_service.redo_editor_history(project_id, payload.expectedModelRevision)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=exc.to_dict())
+    except GeometryValidationError as exc:
+        raise HTTPException(status_code=400, detail={"error": "invalid_history_state", "errors": exc.errors})
 
 
 @app.get("/projects/{project_id}/editable-model/editor-state")
