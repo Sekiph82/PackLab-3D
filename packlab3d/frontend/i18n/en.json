@@ -210,15 +210,18 @@
       "perViewIou": "Per-view IoU",
       "objectiveTerms": "Objective terms"
     },
+    "profile": {
+      "editor": "Profile Editor", "symmetry": "Symmetry", "insertPoint": "Insert Point", "deletePoint": "Delete Point", "smooth": "Smooth", "corner": "Corner", "tangentLock": "Lock Tangent", "points": "Profile points", "selected": "Selected", "valid": "Valid profile", "invalid": "Invalid profile", "symmetryOn": "Symmetry on", "symmetryOff": "Symmetry off", "applied": "Profile edit regenerated the 3D model."
+    },
     "section": {
       "width": "Section width (mm)",
       "apply": "Apply Section Edit",
-      "updated": "Section edit applied and linked drawing updated."
+      "updated": "Section edit applied and linked drawing updated.", "editor": "Section Editor", "add": "Add Section", "duplicate": "Duplicate", "delete": "Delete", "smooth": "Smooth", "falloff": "Falloff", "falloffMode": "Falloff", "valid": "Valid section", "invalid": "Invalid section", "applied": "Section edits regenerated the 3D model and linked drawing."
     },
     "cage": {
       "delta": "Cage delta (mm)",
       "apply": "Move Cage Node",
-      "updated": "Control cage edit deformed the mesh and refreshed drawings."
+      "updated": "Control cage edit deformed the mesh and refreshed drawings.", "editor": "Control Cage Editor", "falloff": "Falloff", "symmetry": "Symmetry", "falloffMode": "Falloff", "viewerMode": "Three.js viewer mode", "nodes": "Cage nodes", "selected": "Selected", "pin": "Pin/Unpin", "resetNode": "Reset Node", "applied": "Control cage deformation applied to the mesh."
     },
     "dimension": {
       "move": "Move Dimension",

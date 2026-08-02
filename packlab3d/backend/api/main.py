@@ -20,6 +20,7 @@ from starlette.background import BackgroundTask
 from packlab3d.backend.i18n import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, get_message
 from packlab3d.backend.i18n import set_language as i18n_set_language
 from packlab3d.backend.multiview.contour_service import RevisionConflict
+from packlab3d.backend.multiview.editable_geometry import GeometryValidationError
 from packlab3d.backend.multiview.service import MultiViewProjectService
 from packlab3d.core.utils.errors import ModelNotAvailableError
 
@@ -91,6 +92,11 @@ class EditableModelUpdateRequest(BaseModel):
     profilePoints: list[dict] = []
     sections: list[dict] = []
     cageNodes: list[dict] = []
+    expectedModelRevision: Optional[int] = None
+    operationId: Optional[str] = None
+    sourceEditor: Optional[str] = None
+    falloff: Optional[str] = "medium"
+    symmetry: Optional[bool] = True
 
 
 class DrawingDocumentUpdateRequest(BaseModel):
@@ -502,6 +508,10 @@ def update_editable_model(project_id: str, payload: EditableModelUpdateRequest):
         return multiview_service.update_editable_model(project_id, payload.model_dump(exclude_none=True))
     except KeyError:
         raise HTTPException(status_code=404, detail="Project not found.")
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409, detail={**exc.to_dict(), "resource": "editable-model"})
+    except GeometryValidationError as exc:
+        raise HTTPException(status_code=400, detail={"error": "invalid_editable_model", "errors": exc.errors})
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

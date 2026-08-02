@@ -210,15 +210,18 @@
       "perViewIou": "Gorunum basina IoU",
       "objectiveTerms": "Hedef terimleri"
     },
+    "profile": {
+      "editor": "Profil Duzenleyici", "symmetry": "Simetri", "insertPoint": "Nokta Ekle", "deletePoint": "Nokta Sil", "smooth": "Yumusat", "corner": "Kose", "tangentLock": "Tanjanti Kilitle", "points": "Profil noktalari", "selected": "Secili", "valid": "Gecerli profil", "invalid": "Gecersiz profil", "symmetryOn": "Simetri acik", "symmetryOff": "Simetri kapali", "applied": "Profil duzenlemesi 3D modeli yeniden olusturdu."
+    },
     "section": {
       "width": "Kesit genisligi (mm)",
       "apply": "Kesit Duzenlemesini Uygula",
-      "updated": "Kesit duzenlemesi uygulandi ve bagli cizim guncellendi."
+      "updated": "Kesit duzenlemesi uygulandi ve bagli cizim guncellendi.", "editor": "Kesit Duzenleyici", "add": "Kesit Ekle", "duplicate": "Kopyala", "delete": "Sil", "smooth": "Yumusat", "falloff": "Etki Alani", "falloffMode": "Etki Alani", "valid": "Gecerli kesit", "invalid": "Gecersiz kesit", "applied": "Kesit duzenlemeleri 3D modeli ve bagli cizimi yeniledi."
     },
     "cage": {
       "delta": "Kafes degisimi (mm)",
       "apply": "Kafes Dugumunu Tasi",
-      "updated": "Kontrol kafesi agi bicimlendirdi ve cizimleri yeniledi."
+      "updated": "Kontrol kafesi agi bicimlendirdi ve cizimleri yeniledi.", "editor": "Kontrol Kafesi Duzenleyici", "falloff": "Etki Alani", "symmetry": "Simetri", "falloffMode": "Etki Alani", "viewerMode": "Three.js goruntuleyici modu", "nodes": "Kafes dugumleri", "selected": "Secili", "pin": "Sabit/Sabiti Kaldir", "resetNode": "Dugumu Sifirla", "applied": "Kontrol kafesi deformasyonu meshe uygulandi."
     },
     "dimension": {
       "move": "Olcuyu Tasi",

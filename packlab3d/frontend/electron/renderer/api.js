@@ -144,13 +144,19 @@ export function createApiClient(baseUrl) {
       return res.json();
     },
 
-    async updateEditableModel({ projectId, edits }) {
+    async updateEditableModel({ projectId, edits, expectedModelRevision = null, operationId = null, sourceEditor = null }) {
       const res = await fetch(`${baseUrl}/projects/${projectId}/editable-model`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(edits),
+        body: JSON.stringify({ ...edits, expectedModelRevision, operationId, sourceEditor }),
       });
-      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        const error = new Error(payload.detail?.message || payload.detail || res.statusText);
+        error.status = res.status;
+        error.detail = payload.detail;
+        throw error;
+      }
       return res.json();
     },
 

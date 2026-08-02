@@ -26,6 +26,7 @@ export function mountThreeJsViewer(container, { i18n }) {
 
   let currentModel = null;
   let wireframeOn = false;
+  let cageController = null;
 
   const overlay = document.createElement('div');
   overlay.className = 'viewer-overlay';
@@ -86,6 +87,82 @@ export function mountThreeJsViewer(container, { i18n }) {
     });
   }
 
+  function setControlCage(cage, { onChange } = {}) {
+    cageController?.destroy?.();
+    const group = new THREE.Group();
+    group.name = 'PackLabControlCage';
+    const nodes = new Map();
+    const meshBindings = [];
+    const edges = cage?.edges || [];
+    const nodeById = new Map((cage?.nodes || []).map((node) => [node.id, node]));
+    (cage?.nodes || []).forEach((node) => {
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(2.5, 12, 8), new THREE.MeshBasicMaterial({ color: node.pinned ? 0x64748b : 0xf97316 }));
+      mesh.position.fromArray(node.positionMm || [0, 0, 0]);
+      mesh.userData.cageNodeId = node.id;
+      mesh.userData.startPosition = [...(node.positionMm || [0, 0, 0])];
+      nodes.set(node.id, mesh);
+      group.add(mesh);
+    });
+    edges.forEach((edge) => {
+      const from = typeof edge === 'object' ? edge.from : edge[0];
+      const to = typeof edge === 'object' ? edge.to : edge[1];
+      const a = nodeById.get(from)?.positionMm;
+      const b = nodeById.get(to)?.positionMm;
+      if (!a || !b) return;
+      const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
+      group.add(new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x0ea5e9 })));
+    });
+    scene.add(group);
+    if (currentModel) {
+      currentModel.traverse((child) => {
+        if (!child.isMesh || !child.geometry?.attributes?.position) return;
+        const position = child.geometry.attributes.position;
+        const rest = Float32Array.from(position.array);
+        meshBindings.push({ child, position, rest });
+      });
+    }
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+    let active = null;
+    let before = null;
+    function deformPreview(nodeId, delta) {
+      const source = nodeById.get(nodeId)?.positionMm || [0, 0, 0];
+      const radius = Math.max(30, currentModel ? new THREE.Box3().setFromObject(currentModel).getSize(new THREE.Vector3()).length() * 0.38 : 120);
+      meshBindings.forEach(({ child, position, rest }) => {
+        for (let index = 0; index < position.count; index += 1) {
+          const offset = index * 3;
+          const distance = Math.hypot(rest[offset] - source[0], rest[offset + 1] - source[1], rest[offset + 2] - source[2]);
+          const normalized = Math.max(0, 1 - distance / radius);
+          const weight = normalized * normalized * (3 - 2 * normalized);
+          position.array[offset] = rest[offset] + delta[0] * weight;
+          position.array[offset + 1] = rest[offset + 1] + delta[1] * weight;
+          position.array[offset + 2] = rest[offset + 2] + delta[2] * weight;
+        }
+        position.needsUpdate = true;
+        child?.geometry?.computeVertexNormals?.();
+      });
+    }
+    function point(event) { const rect = renderer.domElement.getBoundingClientRect(); pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1; pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1; }
+    function down(event) {
+      point(event); raycaster.setFromCamera(pointer, camera); const hit = raycaster.intersectObjects([...nodes.values()])[0];
+      if (!hit) return;
+      active = hit.object; before = active.position.clone(); controls.enabled = false; renderer.domElement.setPointerCapture?.(event.pointerId); onChange?.({ type: 'start', nodeId: active.userData.cageNodeId, before: before.toArray() });
+    }
+    function move(event) {
+      if (!active) return; point(event);
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -before.y); const ray = raycaster.ray; if (!raycaster.setFromCamera(pointer, camera)) return;
+      const hit = new THREE.Vector3(); if (!ray.intersectPlane(plane, hit)) return;
+      active.position.x = hit.x; active.position.z = hit.z;
+      const delta = [hit.x - before.x, 0, hit.z - before.z];
+      deformPreview(active.userData.cageNodeId, delta);
+      onChange?.({ type: 'move', nodeId: active.userData.cageNodeId, deltaMm: delta, positionMm: active.position.toArray() });
+    }
+    function up() { if (!active) return; onChange?.({ type: 'end', nodeId: active.userData.cageNodeId }); active = null; controls.enabled = true; }
+    renderer.domElement.addEventListener('pointerdown', down); renderer.domElement.addEventListener('pointermove', move); renderer.domElement.addEventListener('pointerup', up);
+    cageController = { destroy() { renderer.domElement.removeEventListener('pointerdown', down); renderer.domElement.removeEventListener('pointermove', move); renderer.domElement.removeEventListener('pointerup', up); scene.remove(group); group.traverse((item) => { item.geometry?.dispose?.(); item.material?.dispose?.(); }); cageController = null; }, select(nodeId) { nodes.get(nodeId)?.material?.color.set(0xf97316); }, group };
+    return cageController;
+  }
+
   function animate() {
     requestAnimationFrame(animate);
     controls.update();
@@ -99,6 +176,8 @@ export function mountThreeJsViewer(container, { i18n }) {
 
   return {
     loadGlbArrayBuffer,
+    setControlCage,
+    clearControlCage() { cageController?.destroy?.(); },
     setWireframe(on) {
       wireframeOn = on;
       wireframeBtn.classList.toggle('active', wireframeOn);
@@ -107,6 +186,7 @@ export function mountThreeJsViewer(container, { i18n }) {
     destroy() {
       window.removeEventListener('resize', resize);
       renderer.dispose();
+      cageController?.destroy?.();
     },
   };
 }

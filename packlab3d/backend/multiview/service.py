@@ -52,6 +52,14 @@ from packlab3d.backend.multiview.contour_service import (
     validate_contour,
 )
 from packlab3d.backend.multiview.reconstruction_input_service import build_reconstruction_input
+from packlab3d.backend.multiview.editable_geometry import (
+    GeometryValidationError,
+    apply_cage_edits,
+    apply_profile_points,
+    apply_sections,
+    ensure_editable_model,
+    validate_model,
+)
 
 SUPPORTED_IMAGE_TYPES = {
     "image/jpeg": ".jpg",
@@ -345,6 +353,7 @@ class MultiViewProjectService:
 
     def editable_model(self, project_id: str) -> dict:
         project = self.get_project(project_id)
+        project.reconstructionModel = ensure_editable_model(project.reconstructionModel)
         return {
             "projectId": project.id,
             "reconstructionModel": project.reconstructionModel,
@@ -356,13 +365,19 @@ class MultiViewProjectService:
             "labelRegion": project.labelRegion,
             "versions": project.versions,
             "autosaveMetadata": project.autosaveMetadata,
+            "modelRevision": int(project.reconstructionModel.get("modelRevision", 1)),
+            "geometryValidation": validate_model(project.reconstructionModel),
         }
 
     def update_editable_model(self, project_id: str, edits: dict) -> dict:
         project = self.get_project(project_id)
         if not project.reconstructionModel:
             raise ValueError("No reconstruction model exists for this project.")
-        model = json.loads(json.dumps(project.reconstructionModel))
+        model = ensure_editable_model(project.reconstructionModel)
+        expected_revision = edits.get("expectedModelRevision")
+        current_revision = int(model.get("modelRevision", 1))
+        if expected_revision is not None and int(expected_revision) != current_revision:
+            raise RevisionConflict("editable-model", int(expected_revision), current_revision)
         operations = []
         if "heightMm" in edits:
             old = model["heightMm"]
@@ -446,16 +461,28 @@ class MultiViewProjectService:
                 continue
             before = list(node.get("positionMm", [0, 0, 0]))
             after = [round(float(before[idx]) + float(delta[idx]), 3) for idx in range(3)]
-            node["positionMm"] = after
-            _apply_cage_node_to_sections(model, node, delta)
-            operations.append({"type": "move-cage-node", "target": node_id, "before": before, "after": after, "deformation": "section-aware radial falloff"})
+            operations.append({"type": "move-cage-node", "target": node_id, "before": before, "after": after, "deformation": "weighted section-aware lattice"})
+        if edits.get("profilePoints") and edits.get("profileName") and len(edits.get("profilePoints") or []) >= 3:
+            model = apply_profile_points(model, edits["profileName"], edits["profilePoints"], symmetry=edits.get("symmetry", True))
+        if edits.get("sections"):
+            model = apply_sections(model, edits["sections"])
+        if edits.get("cageNodes"):
+            model = apply_cage_edits(model, edits["cageNodes"], falloff=edits.get("falloff", "medium"), symmetry=edits.get("symmetry", True))
         if not operations:
             return self.editable_model(project_id)
+        model["modelRevision"] = current_revision + 1
+        model["lastOperationId"] = edits.get("operationId") or uuid.uuid4().hex
+        model["lastEditor"] = edits.get("sourceEditor", "editable-model")
+        validation = validate_model(model)
+        if not validation["valid"]:
+            raise GeometryValidationError(validation["errors"])
         project.versions.append(create_version_snapshot(project, "Automatic snapshot before edit", "Created before 3D edit", project.versions[-1]["id"] if project.versions else None))
         project.reconstructionModel = model
         project.editHistory.extend(operations)
         project.editable3DState["historySize"] = len(project.editHistory)
         project.editable3DState["lastOperation"] = operations[-1]["type"]
+        project.editable3DState["modelRevision"] = model["modelRevision"]
+        project.editable3DState["geometryValidation"] = validation
         self._persist_model_outputs(project)
         self._save_project(project)
         return self.editable_model(project_id)
@@ -1281,23 +1308,6 @@ def _infer_dimensions(photos: list[PhotoRecord], measurements: dict, package_typ
         "depthMm": "measured" if _positive(measurements.get("depthMm") or measurements.get("depth_mm") or measurements.get("diameterMm") or measurements.get("diameter_mm")) else "estimated-from-side-or-proportion",
     }
     return dimensions, sources
-
-
-def _apply_cage_node_to_sections(model: dict, node: dict, delta: list[float]) -> None:
-    section_id = node.get("sectionId")
-    section = next((item for item in model.get("crossSections", []) if item.get("id") == section_id), None)
-    if not section:
-        return
-    dx = abs(float(delta[0])) if len(delta) > 0 else 0.0
-    dz = abs(float(delta[2])) if len(delta) > 2 else 0.0
-    if node.get("group") in {"left", "right"} and dx:
-        section["widthMm"] = round(max(1.0, float(section["widthMm"]) + dx * 2.0), 3)
-    if node.get("group") in {"front", "rear"} and dz:
-        section["depthMm"] = round(max(1.0, float(section["depthMm"]) + dz * 2.0), 3)
-    for profile_name, dimension in (("frontProfile", "widthMm"), ("sideProfile", "depthMm")):
-        for point in model.get(profile_name, []):
-            if abs(float(point.get("heightRatio", 0)) - float(section.get("heightRatio", 0))) < 0.03:
-                point["halfExtentMm"] = round(float(section[dimension]) / 2.0, 3)
 
 
 def _positive(value) -> Optional[float]:

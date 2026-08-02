@@ -169,9 +169,22 @@ def mesh_from_generic_model(model: GenericReconstructionModel | dict) -> o3d.geo
         y = (float(section["heightRatio"]) - 0.5) * height
         half_w = max(float(section["widthMm"]) / 2.0, 0.5)
         half_d = max(float(section["depthMm"]) / 2.0, 0.5)
-        for idx in range(SECTION_POINTS):
-            theta = 2.0 * np.pi * idx / SECTION_POINTS
-            vertices.append([half_w * np.cos(theta), y, half_d * np.sin(theta)])
+        loop = section.get("points") or []
+        if len(loop) >= 6:
+            loop_values = np.asarray([[float(item.get("xMm", 0.0)), float(item.get("zMm", 0.0))] for item in loop], dtype=np.float64)
+            indices = np.linspace(0, len(loop_values), SECTION_POINTS, endpoint=False).astype(int)
+            section_points = loop_values[indices % len(loop_values)]
+            section_points[:, 0] += float((section.get("centerOffsetMm") or [0.0, 0.0])[0])
+            section_points[:, 1] += float((section.get("centerOffsetMm") or [0.0, 0.0])[1])
+            angle = np.deg2rad(float(section.get("rotationDeg", 0.0)))
+            rotation = np.asarray([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+            section_points = section_points @ rotation.T
+            for x_value, z_value in section_points:
+                vertices.append([float(x_value), y, float(z_value)])
+        else:
+            for idx in range(SECTION_POINTS):
+                theta = 2.0 * np.pi * idx / SECTION_POINTS
+                vertices.append([half_w * np.cos(theta), y, half_d * np.sin(theta)])
     faces = []
     for row in range(len(sections) - 1):
         base = row * SECTION_POINTS

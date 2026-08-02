@@ -210,15 +210,18 @@
       "perViewIou": "IoU kwa kila mtazamo",
       "objectiveTerms": "Vipengele vya lengo"
     },
+    "profile": {
+      "editor": "Kihariri cha Profaili", "symmetry": "Ulinganifu", "insertPoint": "Ongeza Nukta", "deletePoint": "Futa Nukta", "smooth": "Lainisha", "corner": "Kona", "tangentLock": "Funga Tangenti", "points": "Nukta za profaili", "selected": "Imechaguliwa", "valid": "Profaili halali", "invalid": "Profaili batili", "symmetryOn": "Ulinganifu umewashwa", "symmetryOff": "Ulinganifu umezimwa", "applied": "Hariri ya profaili imeunda upya modeli ya 3D."
+    },
     "section": {
       "width": "Upana wa sehemu (mm)",
       "apply": "Tumia Hariri ya Sehemu",
-      "updated": "Hariri ya sehemu imetumika na mchoro uliounganishwa umesasishwa."
+      "updated": "Hariri ya sehemu imetumika na mchoro uliounganishwa umesasishwa.", "editor": "Kihariri cha Sehemu", "add": "Ongeza Sehemu", "duplicate": "Nakili", "delete": "Futa", "smooth": "Lainisha", "falloff": "Eneo la Athari", "falloffMode": "Eneo la Athari", "valid": "Sehemu halali", "invalid": "Sehemu batili", "applied": "Hariri za sehemu zimeunda upya modeli ya 3D na mchoro uliounganishwa."
     },
     "cage": {
       "delta": "Mabadiliko ya fremu (mm)",
       "apply": "Hamisha Nodi ya Fremu",
-      "updated": "Fremu ya udhibiti imebadili mesh na kuburudisha michoro."
+      "updated": "Fremu ya udhibiti imebadili mesh na kuburudisha michoro.", "editor": "Kihariri cha Fremu ya Udhibiti", "falloff": "Eneo la Athari", "symmetry": "Ulinganifu", "falloffMode": "Eneo la Athari", "viewerMode": "Hali ya mtazamaji wa Three.js", "nodes": "Nodi za fremu", "selected": "Imechaguliwa", "pin": "Funga/Fungua", "resetNode": "Weka Nodi Upya", "applied": "Ubadilishaji wa fremu ya udhibiti umetumika kwenye mesh."
     },
     "dimension": {
       "move": "Hamisha Kipimo",

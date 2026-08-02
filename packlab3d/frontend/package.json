@@ -16,7 +16,8 @@
     "measure:startup": "node scripts/measure-startup.js",
     "postinstall": "electron-builder install-app-deps",
     "test": "jest",
-    "test:e2e": "playwright test"
+    "test:e2e": "npm run build:renderer && playwright test",
+    "test:e2e:startup": "npm run build:renderer && playwright test e2e/startup.spec.js"
   },
   "devDependencies": {
     "@babel/core": "^8.0.1",

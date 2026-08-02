@@ -772,18 +772,22 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
         i18n,
         model,
         onDirty: (event) => markDirty(event.type),
+        onPreview: (edits) => applyLocalPreview(edits),
         onApply: (edits) => applyAdvancedEdit(edits, t('phase7.profile.applied', 'Profile edit regenerated the 3D model.')),
       });
       mountSectionEditor(sectionHost, {
         i18n,
         model,
         onDirty: (event) => markDirty(event.type),
+        onPreview: (edits) => applyLocalPreview(edits),
         onApply: (edits) => applyAdvancedEdit(edits, t('phase7.section.updated', 'Section edit applied and linked drawing updated.')),
       });
       mountControlCageEditor(cageHost, {
         i18n,
         cage: state.editableModel?.controlCage || model.controlCage,
+        viewer,
         onDirty: (event) => markDirty(event.type),
+        onPreview: (edits) => applyLocalPreview(edits),
         onApply: (edits) => applyAdvancedEdit(edits, t('phase7.cage.updated', 'Control cage edit deformed the mesh and refreshed drawings.')),
       });
     }
@@ -846,7 +850,13 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
 
   async function applyAdvancedEdit(edits, successMessage) {
     try {
-      const result = await api.updateEditableModel({ projectId: state.projectId, edits });
+      const result = await api.updateEditableModel({
+        projectId: state.projectId,
+        edits,
+        expectedModelRevision: state.editableModel?.modelRevision ?? null,
+        operationId: edits.operationId,
+        sourceEditor: edits.sourceEditor,
+      });
       const glb = await api.getProjectAsset({ projectId: state.projectId, assetName: 'finalMesh' });
       if (viewer) await viewer.loadGlbArrayBuffer(glb.arrayBuffer);
       state.editableModel = result;
@@ -857,6 +867,13 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
     } catch (err) {
       showError(err);
     }
+  }
+
+  function applyLocalPreview(edits) {
+    // Preview stays renderer-local until pointerup/save; the server remains authoritative.
+    state.previewEdit = edits;
+    markDirty(`preview-${edits.sourceEditor || edits.type || 'geometry'}`);
+    syncStore();
   }
 
   function renderOptimizerMonitor() {
@@ -888,14 +905,6 @@ export function mountMultiPhotoUploader(container, { i18n, store, api, viewer, s
       state.versionComparison ? `${t('phase7.version.changeSummary', 'Change summary')}: ${(state.versionComparison.changes || []).join('; ')}` : '',
     ].filter(Boolean).join('\n');
     return status;
-  }
-
-  function firstSectionId() {
-    return state.editableModel?.reconstructionModel?.crossSections?.[Math.floor((state.editableModel?.reconstructionModel?.crossSections?.length || 1) / 2)]?.id || 'section-12';
-  }
-
-  function firstCageNodeId() {
-    return state.editableModel?.controlCage?.nodes?.[0]?.id || state.editableModel?.reconstructionModel?.controlCage?.nodes?.[0]?.id || 'cage-00-front';
   }
 
   function editorNumber(key, fallback, value) {
