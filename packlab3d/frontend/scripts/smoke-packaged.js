@@ -110,6 +110,21 @@ function createSmokePngFiles(count) {
   });
 }
 
+async function dragLocator(page, locator, dx, dy) {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error('Cannot drag invisible editor target');
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y + dy, { steps: 8 });
+  await page.mouse.up();
+}
+
+async function clickEditorButton(page, title, text) {
+  await page.locator('.interactive-editor', { hasText: title }).locator('button', { hasText: text }).click();
+}
+
 async function runScenario(name, index) {
   if (!fs.existsSync(exePath)) throw new Error(`Packaged executable missing: ${exePath}`);
   if (name === 'shortcut' && !fs.existsSync(shortcutPath)) throw new Error(`Shortcut missing: ${shortcutPath}`);
@@ -269,11 +284,11 @@ async function runScenario(name, index) {
 
         if (name === 'editable-3d' || name === 'linked-2d') {
           await page.waitForSelector('.native-editor', { timeout: 10000 });
-          const heightInput = page.locator('.native-editor input[type="number"]').nth(0);
-          await heightInput.fill('155');
-          await page.locator('.native-editor button', { hasText: 'Apply 3D Edit' }).click();
+          await page.waitForSelector('.profile-editor__canvas [data-profile-point-id]', { timeout: 10000 });
+          await dragLocator(page, page.locator('.profile-editor__canvas [data-profile-point-id]').nth(1), 18, -8);
+          await clickEditorButton(page, 'Profile Editor', 'Apply');
           await page.waitForFunction(
-            () => (document.querySelector('#pipeline-status')?.textContent || '').includes('3D model updated and linked 2D drawing refreshed'),
+            () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Profile edit regenerated'),
             null,
             { timeout: 60000 }
           );
@@ -281,10 +296,12 @@ async function runScenario(name, index) {
         }
 
         if (name === 'linked-2d') {
-          await page.locator('.native-editor input[type="text"]').first().fill('Smoke note persists');
-          await page.locator('.native-editor button', { hasText: 'Add Note' }).click();
+          await clickEditorButton(page, 'Linked 2D Drawing Workspace', 'Add Note');
+          const drawingBox = await page.locator('.drawing-workspace__canvas').boundingBox();
+          await page.mouse.click(drawingBox.x + 180, drawingBox.y + 120);
+          await clickEditorButton(page, 'Linked 2D Drawing Workspace', 'Save');
           await page.waitForFunction(
-            () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Drawing note added'),
+            () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Drawing edits saved'),
             null,
             { timeout: 15000 }
           );
@@ -293,17 +310,35 @@ async function runScenario(name, index) {
 
         if (phase7Scenarios.includes(name)) {
           await page.waitForSelector('.native-editor', { timeout: 10000 });
-          if (name === 'advanced-section-editor' || name === 'advanced-profile-editor') {
-            await page.locator('.native-editor button', { hasText: 'Apply Section Edit' }).click();
+          async function runProfileEdit() {
+            await page.waitForSelector('.profile-editor__canvas [data-profile-point-id]', { timeout: 10000 });
+            await dragLocator(page, page.locator('.profile-editor__canvas [data-profile-point-id]').nth(1), 18, -8);
+            await clickEditorButton(page, 'Profile Editor', 'Apply');
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Profile edit regenerated'),
+              null,
+              { timeout: 60000 }
+            );
+          }
+          async function runSectionEdit() {
+            await page.waitForSelector('.section-editor__canvas [data-handle="width"]', { timeout: 10000 });
+            await dragLocator(page, page.locator('.section-editor__canvas [data-handle="width"]'), 16, 0);
+            await clickEditorButton(page, 'Section Editor', 'Apply');
             await page.waitForFunction(
               () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Section edit applied'),
               null,
               { timeout: 60000 }
             );
+          }
+          if (name === 'advanced-section-editor' || name === 'advanced-profile-editor') {
+            if (name === 'advanced-profile-editor') await runProfileEdit();
+            else await runSectionEdit();
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-section-editor-${Date.now()}.png`), fullPage: true });
           }
           if (name === 'control-cage') {
-            await page.locator('.native-editor button', { hasText: 'Move Cage Node' }).click();
+            await page.waitForSelector('.cage-editor__canvas [data-cage-node-id]', { timeout: 10000 });
+            await dragLocator(page, page.locator('.cage-editor__canvas [data-cage-node-id]').nth(1), -18, -12);
+            await clickEditorButton(page, 'Control Cage Editor', 'Apply');
             await page.waitForFunction(
               () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Control cage edit'),
               null,
@@ -312,25 +347,35 @@ async function runScenario(name, index) {
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-control-cage-${Date.now()}.png`), fullPage: true });
           }
           if (name === 'dimension-editor') {
-            await page.locator('.native-editor button', { hasText: 'Move Dimension' }).click();
+            await page.waitForSelector('.drawing-workspace__canvas [data-entity-kind="dimension"]', { timeout: 10000, state: 'attached' });
+            await dragLocator(page, page.locator('.drawing-workspace__canvas [data-entity-kind="dimension"]').first(), 0, 18);
+            await clickEditorButton(page, 'Linked 2D Drawing Workspace', 'Save');
             await page.waitForFunction(
-              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Dimension placement updated'),
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Drawing edits saved'),
               null,
               { timeout: 15000 }
             );
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-dimension-editor-${Date.now()}.png`), fullPage: true });
           }
           if (name === 'section-view') {
-            await page.locator('.native-editor button', { hasText: 'Add Section Line' }).click();
+            await clickEditorButton(page, 'Linked 2D Drawing Workspace', 'Add Section Line');
+            const drawingBox = await page.locator('.drawing-workspace__canvas').boundingBox();
+            await page.mouse.move(drawingBox.x + 90, drawingBox.y + 90);
+            await page.mouse.down();
+            await page.mouse.move(drawingBox.x + 170, drawingBox.y + 170, { steps: 6 });
+            await page.mouse.up();
+            await clickEditorButton(page, 'Linked 2D Drawing Workspace', 'Save');
             await page.waitForFunction(
-              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Section line'),
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Drawing edits saved'),
               null,
               { timeout: 15000 }
             );
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-section-view-${Date.now()}.png`), fullPage: true });
           }
           if (name === 'landmark-editor') {
-            await page.locator('.native-editor button', { hasText: 'Lock Landmark' }).click();
+            await page.waitForSelector('.landmark-editor__canvas [data-landmark-id]', { timeout: 10000 });
+            await dragLocator(page, page.locator('.landmark-editor__canvas [data-landmark-id]').first(), 28, -20);
+            await clickEditorButton(page, 'Landmark Editor', 'Save');
             await page.waitForFunction(
               () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Landmark correction'),
               null,
@@ -338,28 +383,39 @@ async function runScenario(name, index) {
             );
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-landmark-editor-${Date.now()}.png`), fullPage: true });
           }
+          if (name === 'mask-editor') {
+            await page.waitForSelector('.mask-editor__canvas', { timeout: 10000 });
+            await dragLocator(page, page.locator('.mask-editor__canvas'), 22, 18);
+            await clickEditorButton(page, 'Mask Editor', 'Save Mask');
+            await page.waitForFunction(
+              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Manual mask saved'),
+              null,
+              { timeout: 15000 }
+            );
+            if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-mask-editor-${Date.now()}.png`), fullPage: true });
+          }
           if (name === 'version-compare' || name === 'autosave-recovery') {
-            await page.locator('.native-editor input[type="text"]').last().fill('Smoke Version A');
-            await page.locator('.native-editor button', { hasText: 'Save Version' }).click();
+            await page.locator('.version-manager__list').waitFor({ timeout: 10000 });
+            await page.locator('.interactive-editor', { hasText: 'Version Manager' }).locator('input').first().fill('Smoke Version A');
+            await page.locator('.interactive-editor', { hasText: 'Version Manager' }).locator('button', { hasText: 'Save Version' }).click();
             await page.waitForFunction(
               () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Project version saved'),
               null,
               { timeout: 15000 }
             );
-            await page.locator('.native-editor button', { hasText: 'Apply Section Edit' }).click();
-            await page.waitForFunction(
-              () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Section edit applied'),
-              null,
-              { timeout: 60000 }
-            );
-            await page.locator('.native-editor input[type="text"]').last().fill('Smoke Version B');
-            await page.locator('.native-editor button', { hasText: 'Save Version' }).click();
-            await page.locator('.native-editor button', { hasText: 'Compare Versions' }).click();
+            await runSectionEdit();
+            await page.locator('.interactive-editor', { hasText: 'Version Manager' }).locator('input').first().fill('Smoke Version B');
+            await page.locator('.interactive-editor', { hasText: 'Version Manager' }).locator('button', { hasText: 'Save Version' }).click();
+            await page.locator('.interactive-editor', { hasText: 'Version Manager' }).locator('button', { hasText: 'Compare Versions' }).click();
             await page.waitForFunction(
               () => (document.querySelector('#pipeline-status')?.textContent || '').includes('Versions compared'),
               null,
               { timeout: 15000 }
             );
+            if (name === 'autosave-recovery') {
+              await page.locator('.autosave-status button', { hasText: 'Save Recovery Now' }).click();
+              await page.waitForSelector('.autosave-status', { timeout: 5000 });
+            }
             if (screenshotDir) await page.screenshot({ path: path.join(screenshotDir, `phase7-version-compare-${Date.now()}.png`), fullPage: true });
           }
           if (name === 'svg-dxf-validation') {

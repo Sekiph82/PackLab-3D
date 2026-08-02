@@ -86,6 +86,7 @@ class EditableModelUpdateRequest(BaseModel):
     heightMm: Optional[float] = None
     widthMm: Optional[float] = None
     depthMm: Optional[float] = None
+    profileName: Optional[str] = None
     profilePoints: list[dict] = []
     sections: list[dict] = []
     cageNodes: list[dict] = []
@@ -113,6 +114,17 @@ class CompareVersionsRequest(BaseModel):
 class LandmarkUpdateRequest(BaseModel):
     photoId: str
     landmarks: list[dict]
+
+
+class MaskUpdateRequest(BaseModel):
+    width: int
+    height: int
+    checksum: str
+    maskData: list[int]
+
+
+class RecoverySnapshotRequest(BaseModel):
+    state: dict
 
 
 def _resolve_language(language: Optional[str]) -> str:
@@ -500,6 +512,40 @@ def update_project_landmarks(project_id: str, payload: LandmarkUpdateRequest):
         return multiview_service.update_landmarks(project_id, payload.photoId, payload.landmarks)
     except KeyError:
         raise HTTPException(status_code=404, detail="Project or photo not found.")
+
+
+@app.patch("/projects/{project_id}/photos/{photo_id}/mask")
+def update_project_photo_mask(project_id: str, photo_id: str, payload: MaskUpdateRequest):
+    try:
+        return multiview_service.update_manual_mask(project_id, photo_id, payload.model_dump())
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project or photo not found.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.put("/projects/{project_id}/recovery")
+def save_project_recovery(project_id: str, payload: RecoverySnapshotRequest):
+    try:
+        return multiview_service.save_recovery_snapshot(project_id, payload.state)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.get("/projects/{project_id}/recovery")
+def get_project_recovery(project_id: str):
+    try:
+        return multiview_service.get_recovery_snapshot(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.delete("/projects/{project_id}/recovery")
+def discard_project_recovery(project_id: str):
+    try:
+        return multiview_service.discard_recovery_snapshot(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Project not found.")
 
 
 @app.post("/projects/{project_id}/versions")

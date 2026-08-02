@@ -604,6 +604,11 @@ html, body {
   border-left-color: #ff3366;
 }
 
+.photo-card--selected {
+  outline: 2px solid var(--pl-blue);
+  outline-offset: 1px;
+}
+
 .photo-card img {
   grid-row: span 4;
   width: 64px;
@@ -754,6 +759,179 @@ html, body {
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
   gap: 8px;
   align-items: end;
+}
+
+.native-editor__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  max-height: 900px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.interactive-editor,
+.photo-analysis-panel,
+.autosave-status {
+  border: 1px solid rgba(0, 87, 255, 0.16);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.interactive-editor__title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.25;
+  color: #16324f;
+}
+
+.interactive-editor__toolbar,
+.photo-analysis-panel__rows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.interactive-editor__toolbar input,
+.interactive-editor__toolbar select,
+.photo-analysis-panel select {
+  border: 1px solid rgba(120, 134, 158, 0.36);
+  border-radius: 6px;
+  padding: 5px 7px;
+  font: inherit;
+  background: #fff;
+}
+
+.editor-button {
+  border: 1px solid var(--pl-blue);
+  background: #fff;
+  color: var(--pl-blue);
+  border-radius: 5px;
+  min-height: 28px;
+  padding: 5px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.editor-button--warning {
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
+.interactive-editor__status,
+.autosave-status__text {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #52627a;
+}
+
+.mask-editor__canvas,
+.landmark-editor__canvas,
+.profile-editor__canvas,
+.section-editor__canvas,
+.cage-editor__canvas,
+.drawing-workspace__canvas,
+.optimizer-monitor__chart {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  margin-top: 8px;
+  border: 1px solid #d7e5f7;
+  border-radius: 6px;
+  background: #f8fbff;
+  touch-action: none;
+}
+
+.drawing-workspace__canvas {
+  max-height: 360px;
+}
+
+.photo-analysis-panel {
+  margin: 8px 0;
+  font-size: 11px;
+}
+
+.photo-analysis-panel__rows {
+  display: grid;
+  grid-template-columns: 1fr;
+  margin-top: 6px;
+}
+
+.photo-analysis-panel__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 116px;
+  gap: 5px;
+  align-items: center;
+}
+
+.photo-analysis-panel__row span,
+.photo-analysis-panel__row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.photo-analysis-panel__row small {
+  grid-column: 1 / -1;
+  color: #52627a;
+}
+
+.silhouette-diagnostics {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.objective-terms-panel {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 120px;
+  overflow: auto;
+  font-size: 11px;
+  color: #334155;
+}
+
+.objective-terms-panel__row {
+  border-left: 3px solid var(--pl-blue);
+  padding-left: 6px;
+}
+
+.silhouette-diagnostics__row {
+  position: relative;
+  min-height: 20px;
+  padding: 3px 6px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #eef6ff;
+}
+
+.silhouette-diagnostics__bar {
+  position: absolute;
+  inset: auto auto 0 0;
+  height: 3px;
+  background: var(--pl-cyan);
+}
+
+.version-manager__list,
+.version-manager__comparison {
+  display: grid;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #52627a;
+}
+
+.version-manager__item,
+.version-manager__change {
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  padding: 5px 6px;
+  background: #f8fbff;
 }
 
 .native-editor__field {

@@ -1,11 +1,13 @@
 import hashlib
 import io
 import json
+import os
 import tempfile
 import threading
 import time
 import uuid
 import zipfile
+import datetime as dt
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Optional
@@ -364,19 +366,36 @@ class MultiViewProjectService:
             for section in model["crossSections"]:
                 section["depthMm"] = round(section["depthMm"] * factor, 3)
             operations.append({"type": "scale-depth", "before": old_max, "after": scale_depth})
+        profile_targets = [edits.get("profileName")] if edits.get("profileName") in {"frontProfile", "sideProfile"} else ["frontProfile", "sideProfile"]
         for point in edits.get("profilePoints", []) or []:
             target_id = point.get("id")
             half_extent = _positive(point.get("halfExtentMm"))
             if not target_id or half_extent is None:
                 continue
-            for profile_name in ("frontProfile", "sideProfile"):
+            found = False
+            for profile_name in profile_targets:
                 for item in model.get(profile_name, []):
                     if item["id"] == target_id and not item.get("locked"):
                         old = item["halfExtentMm"]
                         item["halfExtentMm"] = round(half_extent, 3)
-                        operations.append({"type": "move-profile-point", "target": target_id, "before": old, "after": item["halfExtentMm"]})
+                        if "heightRatio" in point:
+                            item["heightRatio"] = round(max(0.0, min(1.0, float(point["heightRatio"]))), 4)
+                        operations.append({"type": "move-profile-point", "profile": profile_name, "target": target_id, "before": old, "after": item["halfExtentMm"]})
+                        found = True
+            if not found and edits.get("profileName") in {"frontProfile", "sideProfile"}:
+                item = {
+                    "id": target_id,
+                    "heightRatio": round(max(0.0, min(1.0, float(point.get("heightRatio", 0.5)))), 4),
+                    "halfExtentMm": round(half_extent, 3),
+                    "source": "manual",
+                    "locked": False,
+                }
+                model.setdefault(edits["profileName"], []).append(item)
+                model[edits["profileName"]].sort(key=lambda entry: entry.get("heightRatio", 0.0))
+                operations.append({"type": "insert-profile-point", "profile": edits["profileName"], "target": target_id, "after": item})
         for section_edit in edits.get("sections", []) or []:
             section_id = section_edit.get("id")
+            found_section = False
             for section in model.get("crossSections", []):
                 if section["id"] != section_id or section.get("locked"):
                     continue
@@ -388,6 +407,21 @@ class MultiViewProjectService:
                 if "heightRatio" in section_edit:
                     section["heightRatio"] = round(max(0.0, min(1.0, float(section_edit["heightRatio"]))), 4)
                 operations.append({"type": "edit-section", "target": section_id, "before": before, "after": dict(section)})
+                found_section = True
+            if not found_section and section_id and _positive(section_edit.get("widthMm")) is not None and _positive(section_edit.get("depthMm")) is not None:
+                section = {
+                    "id": section_id,
+                    "heightRatio": round(max(0.0, min(1.0, float(section_edit.get("heightRatio", 0.5)))), 4),
+                    "widthMm": round(float(section_edit["widthMm"]), 3),
+                    "depthMm": round(float(section_edit["depthMm"]), 3),
+                    "centerOffsetMm": section_edit.get("centerOffsetMm", [0, 0]),
+                    "rotationDeg": round(float(section_edit.get("rotationDeg", 0)), 3),
+                    "source": "manual",
+                    "locked": False,
+                }
+                model.setdefault("crossSections", []).append(section)
+                model["crossSections"].sort(key=lambda entry: entry.get("heightRatio", 0.0))
+                operations.append({"type": "add-section", "target": section_id, "after": section})
         for cage_edit in edits.get("cageNodes", []) or []:
             node_id = cage_edit.get("id")
             delta = cage_edit.get("deltaMm") or [0, 0, 0]
@@ -473,6 +507,97 @@ class MultiViewProjectService:
         project.editHistory.append({"type": "landmark-edit", "photoId": photo_id, "count": len(normalized), "timestamp": time.time()})
         self._save_project(project)
         return {"projectId": project.id, "photoId": photo_id, "landmarks": normalized}
+
+    def update_manual_mask(self, project_id: str, photo_id: str, payload: dict) -> dict:
+        project = self.get_project(project_id)
+        photo = next((item for item in project.photos if item.id == photo_id), None)
+        if not photo:
+            raise KeyError(photo_id)
+        width = int(payload.get("width") or 0)
+        height = int(payload.get("height") or 0)
+        values = payload.get("maskData") or []
+        if width <= 0 or height <= 0 or len(values) != width * height:
+            raise ValueError("Mask dimensions do not match mask data.")
+        array = np.asarray(values, dtype=np.uint8).reshape((height, width))
+        mask = Image.fromarray(array, "L")
+        mask_path = Path(project.rootPath) / "masks" / f"{photo.id}-manual.png"
+        mask_path.parent.mkdir(parents=True, exist_ok=True)
+        mask.save(mask_path, "PNG")
+        photo.maskPath = str(mask_path)
+        photo.segmentation = {
+            "status": "manual_mask_ready",
+            "provider": "ManualMaskProvider",
+            "maskPath": str(mask_path),
+            "checksum": payload.get("checksum"),
+            "manualOverride": True,
+            "approved": True,
+        }
+        silhouette = analyze_photo_geometry(photo, mask_path=str(mask_path))
+        project.masks[photo.id] = {
+            **project.masks.get(photo.id, {}),
+            "manualMaskPath": str(mask_path),
+            "cleanedMaskPath": str(mask_path),
+            "checksum": payload.get("checksum"),
+            "manualOverride": True,
+            "updatedAt": time.time(),
+        }
+        project.silhouettes[photo.id] = silhouette
+        project.contours[photo.id] = {
+            "source": "manual-mask",
+            "normalizedContour": silhouette.get("levels", []),
+            "confidence": silhouette.get("confidence", 0.0),
+        }
+        project.landmarks[photo.id] = _photo_landmarks_from_silhouette(silhouette)
+        project.editHistory.append({"type": "manual-mask-edit", "photoId": photo.id, "checksum": payload.get("checksum"), "timestamp": time.time()})
+        self._save_project(project)
+        return {
+            "projectId": project.id,
+            "photo": asdict(photo),
+            "mask": project.masks[photo.id],
+            "silhouette": silhouette,
+            "landmarks": project.landmarks[photo.id],
+        }
+
+    def save_recovery_snapshot(self, project_id: str, state: dict) -> dict:
+        project = self.get_project(project_id)
+        timestamp = time.time()
+        recovery = {
+            "projectId": project.id,
+            "schemaVersion": project.version,
+            "timestamp": timestamp,
+            "state": state,
+            "project": self._project_json(project),
+        }
+        path = Path(project.rootPath) / "project.packlab3d.recovery.json"
+        tmp = path.with_suffix(".recovery.tmp")
+        tmp.write_text(json.dumps(recovery, indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+        project.autosaveMetadata = {
+            **project.autosaveMetadata,
+            "dirty": False,
+            "lastSuccessfulSave": dt.datetime.utcfromtimestamp(timestamp).isoformat(timespec="seconds") + "Z",
+            "recoveryFile": path.name,
+            "recoveryAvailable": True,
+        }
+        self._save_project(project)
+        return {"projectId": project.id, "recovery": project.autosaveMetadata}
+
+    def get_recovery_snapshot(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        path = Path(project.rootPath) / "project.packlab3d.recovery.json"
+        if not path.exists():
+            return {"projectId": project.id, "available": False}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {"projectId": project.id, "available": True, "recovery": data}
+
+    def discard_recovery_snapshot(self, project_id: str) -> dict:
+        project = self.get_project(project_id)
+        path = Path(project.rootPath) / "project.packlab3d.recovery.json"
+        if path.exists():
+            path.unlink()
+        project.autosaveMetadata = {**project.autosaveMetadata, "dirty": False, "recoveryAvailable": False}
+        self._save_project(project)
+        return {"projectId": project.id, "available": False}
 
     def _run_job(self, job_id: str, payload: dict) -> None:
         job = self._jobs[job_id]

@@ -140,4 +140,26 @@ def render_view_dxf(hull_points: np.ndarray, dim_x_mm: float, dim_y_mm: float, v
     entities += _dxf_text(0, dim_y_mm + 5, 4, view_label, "TITLE_BLOCK")
     entities += _dxf_text(0, dim_y_mm + 10, 2.5, "Derived mesh projection", "NOTES")
 
-    return "0\nSECTION\n2\nENTITIES\n" + entities + "0\nENDSEC\n0\nEOF\n"
+    layers = (
+        "OUTLINE",
+        "DIMENSIONS",
+        "CENTERLINES",
+        "REFERENCE_LINES",
+        "LABEL_AREA",
+        "SECTIONS",
+        "HATCH",
+        "NOTES",
+        "TITLE_BLOCK",
+    )
+    layer_table = "0\nTABLE\n2\nLAYER\n70\n9\n" + "".join(
+        f"0\nLAYER\n2\n{layer}\n70\n0\n62\n7\n6\nCONTINUOUS\n" for layer in layers
+    ) + "0\nENDTAB\n"
+    return (
+        "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n"
+        "0\nSECTION\n2\nTABLES\n"
+        f"{layer_table}"
+        "0\nENDSEC\n"
+        "0\nSECTION\n2\nENTITIES\n"
+        f"{entities}"
+        "0\nENDSEC\n0\nEOF\n"
+    )

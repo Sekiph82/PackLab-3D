@@ -159,6 +159,38 @@ export function createApiClient(baseUrl) {
       return res.json();
     },
 
+    async updatePhotoMask({ projectId, photoId, width, height, checksum, maskData }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/photos/${photoId}/mask`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ width, height, checksum, maskData }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async saveRecoverySnapshot({ projectId, state }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/recovery`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state }),
+      });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async restoreRecoverySnapshot({ projectId }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/recovery`);
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
+    async discardRecoverySnapshot({ projectId }) {
+      const res = await fetch(`${baseUrl}/projects/${projectId}/recovery`, { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      return res.json();
+    },
+
     async saveProjectVersion({ projectId, name, note = '' }) {
       const res = await fetch(`${baseUrl}/projects/${projectId}/versions`, {
         method: 'POST',

@@ -69,13 +69,18 @@ def build_drawing_document(drawing_package: dict, reconstruction_model: dict, pr
 def apply_drawing_patch(document: dict, patch: dict) -> dict:
     updated = copy.deepcopy(document or {})
     for note in patch.get("notes", []) or []:
-        updated.setdefault("notes", []).append({**{"id": f"note-{uuid.uuid4().hex[:8]}", "x": 10, "y": 10, "type": "free-note"}, **note})
+        item = {**{"id": note.get("id") or f"note-{uuid.uuid4().hex[:8]}", "x": 10, "y": 10, "type": "free-note"}, **note}
+        _merge_by_id(updated.setdefault("notes", []), item)
     for line in patch.get("referenceLines", []) or []:
-        updated.setdefault("referenceLines", []).append({**{"id": f"ref-{uuid.uuid4().hex[:8]}", "visible": True, "locked": False}, **line})
+        item = {**{"id": line.get("id") or f"ref-{uuid.uuid4().hex[:8]}", "visible": True, "locked": False}, **line}
+        _merge_by_id(updated.setdefault("referenceLines", []), item)
     for line in patch.get("sectionLines", []) or []:
         line_id = line.get("id", f"section-line-{uuid.uuid4().hex[:8]}")
-        updated.setdefault("sectionLines", []).append({**{"id": line_id, "label": f"A-{len(updated.get('sectionLines', [])) + 1}", "direction": "forward", "visible": True}, **line})
-        updated.setdefault("sectionViews", []).append({"id": f"section-view-{line_id}", "sourceLineId": line_id, "type": "vertical-section", "visible": True, "estimatedInnerProfile": True})
+        item = {**{"id": line_id, "label": f"A-{len(updated.get('sectionLines', [])) + 1}", "direction": "forward", "visible": True}, **line}
+        _merge_by_id(updated.setdefault("sectionLines", []), item)
+        section_view_id = f"section-view-{line_id}"
+        if not any(view.get("id") == section_view_id for view in updated.setdefault("sectionViews", [])):
+            updated["sectionViews"].append({"id": section_view_id, "sourceLineId": line_id, "type": "vertical-section", "visible": True, "estimatedInnerProfile": True})
     for dimension in patch.get("dimensions", []) or []:
         _merge_by_id(updated.setdefault("dimensions", []), dimension)
     if "page" in patch:
@@ -91,7 +96,11 @@ def validate_svg(svg: str) -> dict:
         root = ET.fromstring(svg)
     except ET.ParseError as exc:
         return {"valid": False, "groups": 0, "pathCount": 0, "textCount": 0, "warnings": [str(exc)]}
-    ids = {node.attrib.get("id") for node in root.iter() if node.attrib.get("id")}
+    id_values = [node.attrib.get("id") for node in root.iter() if node.attrib.get("id")]
+    ids = set(id_values)
+    duplicate_ids = sorted({item for item in id_values if id_values.count(item) > 1})
+    if duplicate_ids:
+        warnings.append("Duplicate SVG IDs: " + ", ".join(duplicate_ids))
     missing = [item for item in REQUIRED_SVG_GROUPS if item not in ids]
     if missing:
         warnings.append("Missing SVG groups: " + ", ".join(missing))
@@ -109,10 +118,27 @@ def validate_svg(svg: str) -> dict:
 
 def validate_dxf(dxf: str) -> dict:
     warnings = []
+    lines = dxf.splitlines()
+    if len(lines) % 2:
+        warnings.append("DXF contains an odd number of group-code lines")
+    pairs = []
+    for index in range(0, len(lines) - 1, 2):
+        code = lines[index].strip()
+        value = lines[index + 1].strip()
+        if not re.fullmatch(r"-?\d+", code):
+            warnings.append(f"Invalid DXF group code at line {index + 1}: {code}")
+            break
+        pairs.append((int(code), value))
     if not dxf.startswith("0\nSECTION"):
         warnings.append("DXF does not start with SECTION")
     if not dxf.rstrip().endswith("EOF"):
         warnings.append("DXF missing EOF")
+    if not any(code == 2 and value == "HEADER" for code, value in pairs):
+        warnings.append("DXF missing HEADER section")
+    if not any(code == 2 and value == "TABLES" for code, value in pairs):
+        warnings.append("DXF missing TABLES section")
+    if not any(code == 2 and value == "ENTITIES" for code, value in pairs):
+        warnings.append("DXF missing ENTITIES section")
     found = sorted(set(re.findall(r"\n8\n([A-Z_]+)", dxf)))
     missing = [layer for layer in REQUIRED_DXF_LAYERS if layer not in found]
     if missing:
