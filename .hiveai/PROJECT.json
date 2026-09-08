@@ -1,14 +1,19 @@
 {
-  "schema": "hiveai-project/v1",
+  "schema": "hiveai-project-control-plane/v1",
   "projectKey": "packlab-3d",
   "displayName": "PackLab 3D",
-  "repository": "Sekiph82/PackLab-3D",
+  "repository": {
+    "owner": "Sekiph82",
+    "name": "PackLab-3D",
+    "branch": "main"
+  },
   "trackedBranch": "main",
   "canonicalTaskSource": "tasks.md",
-  "rulesSource": ".hiveai/RULES.md",
-  "stateSource": ".hiveai/STATE.json",
-  "handoffSource": ".hiveai/HANDOFF.md",
-  "eventSource": ".hiveai/EVENTS.jsonl",
+  "rules": ".hiveai/RULES.md",
+  "state": ".hiveai/STATE.json",
+  "handoff": ".hiveai/HANDOFF.md",
+  "events": ".hiveai/EVENTS.jsonl",
+  "eventSources": [],
   "refresh": {
     "mode": "watcher-first",
     "debounceMs": 500,

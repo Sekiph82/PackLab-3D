@@ -1,5 +1,5 @@
 {
-  "schema": "hiveai-state/v1",
+  "schema": "hiveai-project-control-plane/v1",
   "projectKey": "packlab-3d",
   "syncStatus": "NEEDS_RECONCILIATION",
   "projectStatus": "ACTIVE",
