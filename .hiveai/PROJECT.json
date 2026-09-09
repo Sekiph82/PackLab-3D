@@ -7,12 +7,9 @@
     "name": "PackLab-3D"
   },
   "trackedBranch": "main",
-  "paths": {
-    "project": ".hiveai/PROJECT.json",
-    "tasks": ".hiveai/TASKS.md",
-    "rules": ".hiveai/RULES.md",
-    "events": ".hiveai/EVENTS.jsonl"
-  },
+  "tasksPath": ".hiveai/TASKS.md",
+  "rulesPath": ".hiveai/RULES.md",
+  "eventsPath": ".hiveai/EVENTS.jsonl",
   "refresh": {
     "mode": "github-poll",
     "intervalSeconds": 30,
