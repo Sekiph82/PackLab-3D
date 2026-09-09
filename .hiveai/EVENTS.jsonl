@@ -1,1 +1,2 @@
-{"schema":"hiveai-event/v1","eventId":"bootstrap-20260908-packlab-3d","projectKey":"packlab-3d","type":"WORKFLOW_CHANGED","at":"2026-09-08T00:00:00Z","actor":"SYSTEM","taskId":null,"workflowState":"IDLE","summary":"Standardized H!veAI control plane installed; one-time reconciliation required.","commit":null,"auditId":null,"sessionId":null}
+{"schema":"hiveai-event/v1","id":"m16o-migration-packlab-3d","projectKey":"packlab-3d","type":"TRACKING_CONTRACT_MIGRATED","taskId":null,"from":"hiveai-control-plane-v1","to":"hiveai-task-tracker-v3","actor":"CODEX","timestamp":"2026-09-09T00:00:00Z","commitSha":null}
+
