@@ -1,19 +1,3 @@
-# PackLab 3D — Canonical GitHub Task State
-
-This root TASKS.md is the only authoritative project-status tracker consumed by H!veAI. GitHub repository metadata and the latest commit are the remaining project-truth inputs. Hidden .hiveai control-plane files are historical only and are not read for current project state.
-
-## Project Status
-
-- Current Milestone: M00
-- Current Sprint: M00-S01
-- Current Task:  — No exact current task is declared by the available project evidence.
-- Current Task Status: READY
-- Next Task/Action: Define the first approved PackLab 3D task in TASKS.md before implementation.
-- Required Actor: OWNER
-- Tracking Repository: Sekiph82/PackLab-3D
-- Tracking Branch: main
-
-## Tasks
 # tasks.md — PackLab 3D
 # Full Development Plan + Multilingual Support (English, Turkish, Swahili)
 
@@ -253,5 +237,3 @@ v1.5
 v2.0  
 - AI packaging design  
 - AI label content generation  
-
-
